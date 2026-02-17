@@ -1,0 +1,1628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CDR Processor Observatory</title>
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a2e;
+    --surface2: #16213e;
+    --border: #2a2a4a;
+    --text: #e0e0e0;
+    --text-dim: #888;
+    --accent: #00d2ff;
+    --accent2: #7b2ff7;
+    --red: #ff4757;
+    --red-bg: rgba(255,71,87,0.12);
+    --green: #2ed573;
+    --yellow: #ffa502;
+    --orange: #ff9f43;
+    --purple: #a55eea;
+    --cyan: #18dcff;
+    --teal: #7efff5;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    background: linear-gradient(135deg, var(--surface), var(--surface2));
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header h1 {
+    font-size: 1.4rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  header .stats {
+    margin-left: auto;
+    display: flex;
+    gap: 20px;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  header .stats .num { color: var(--accent); font-weight: 600; }
+
+  .upload-zone {
+    display: flex;
+    gap: 16px;
+    padding: 20px 24px;
+    flex-wrap: wrap;
+  }
+  .upload-card {
+    flex: 1;
+    min-width: 200px;
+    background: var(--surface);
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  .upload-card:hover { border-color: var(--accent); background: var(--surface2); }
+  .upload-card.loaded { border-color: var(--green); border-style: solid; }
+  .upload-card input { display: none; }
+  .upload-card .icon { font-size: 2rem; margin-bottom: 8px; }
+  .upload-card .label { font-size: 0.9rem; color: var(--text-dim); }
+  .upload-card .filename { font-size: 0.8rem; color: var(--green); margin-top: 6px; }
+
+  .tabs {
+    display: flex;
+    gap: 0;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    padding: 10px 20px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab .badge {
+    background: var(--accent2);
+    color: #fff;
+    font-size: 0.7rem;
+    padding: 1px 6px;
+    border-radius: 8px;
+    margin-left: 6px;
+  }
+  .tab .badge.red { background: var(--red); }
+
+  .panel { display: none; padding: 16px 24px; }
+  .panel.active { display: block; }
+
+  .grid-container {
+    overflow: auto;
+    max-height: calc(100vh - 320px);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+  thead { position: sticky; top: 0; z-index: 2; }
+  th {
+    background: var(--surface2);
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 2px solid var(--border);
+    color: var(--accent);
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+  }
+  th:hover { color: #fff; }
+  th .resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    background: transparent;
+  }
+  th .resize-handle:hover { background: var(--accent); }
+  th.dragging { opacity: 0.5; }
+  th.drag-over { border-left: 2px solid var(--accent); }
+  td {
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  tr:hover td { background: rgba(0,210,255,0.05); }
+  tr.unknown-sip td { color: var(--red); }
+  tr.unknown-sip { background: var(--red-bg); }
+  tr.highlight-row td { background: rgba(0,210,255,0.18) !important; outline: 1px solid var(--accent); }
+  tr.suppressed-row td { opacity: 0.5; text-decoration: line-through; }
+  tr.suppressed-row:hover td { opacity: 0.8; }
+
+  .sip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 0;
+  }
+  .sip-chip {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-family: 'Consolas', monospace;
+  }
+  .sip-chip.known { background: var(--surface2); border: 1px solid var(--border); color: var(--text); }
+  .sip-chip.unknown { background: var(--red-bg); border: 1px solid var(--red); color: var(--red); }
+  .sip-chip.pstn { background: rgba(255,165,2,0.12); border: 1px solid var(--yellow); color: var(--yellow); }
+
+  .log-container {
+    background: #0a0a0a;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'Consolas', 'Fira Code', monospace;
+    font-size: 0.78rem;
+    max-height: calc(100vh - 320px);
+    overflow: auto;
+    line-height: 1.6;
+  }
+  .log-line { padding: 1px 4px; cursor: default; border-radius: 3px; }
+  .log-line.warn { color: var(--yellow); }
+  .log-line.error { color: var(--red); }
+  .log-line.info { color: var(--accent); }
+  .log-line.dim { color: var(--text-dim); }
+  .log-line.tag-direction { background: rgba(0,130,255,0.15); border-left: 3px solid #0082ff; }
+  .log-line.tag-suppressed { background: rgba(255,159,67,0.12); border-left: 3px solid var(--orange); text-decoration: line-through; }
+  .log-line.tag-field { background: rgba(128,128,128,0.08); border-left: 3px solid #666; color: var(--text-dim); }
+  .log-line.tag-merge { background: rgba(165,94,234,0.12); border-left: 3px solid var(--purple); }
+  .log-line.tag-sip { background: rgba(46,213,115,0.12); border-left: 3px solid var(--green); }
+  .log-line.tag-special { background: rgba(126,255,245,0.1); border-left: 3px solid var(--teal); }
+  .log-line.tag-transfer { background: rgba(24,220,255,0.1); border-left: 3px solid var(--cyan); }
+  .log-line.clickable { cursor: pointer; }
+  .log-line.clickable:hover { background: rgba(0,210,255,0.15); }
+  .log-line.highlight-log { outline: 2px solid var(--accent); background: rgba(0,210,255,0.2) !important; }
+
+  .section-title {
+    font-size: 0.95rem;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title .count { color: var(--accent); }
+
+  .filter-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .filter-bar input[type="text"] {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    width: 250px;
+  }
+  .filter-bar input:focus { outline: none; border-color: var(--accent); }
+  .filter-bar label { font-size: 0.82rem; color: var(--text-dim); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .filter-bar .btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filter-bar .btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+  }
+  .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+
+  /* Direction tooltip/popup */
+  .direction-tooltip {
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 12px 16px;
+    max-width: 500px;
+    font-size: 0.8rem;
+    z-index: 1000;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    pointer-events: none;
+  }
+  .direction-tooltip .dt-header { color: var(--accent); font-weight: 600; margin-bottom: 6px; }
+  .direction-tooltip .dt-line { color: var(--text-dim); margin: 2px 0; font-family: monospace; font-size: 0.75rem; }
+
+  /* Special number badges */
+  .badge-routing { display: inline-block; background: rgba(255,165,2,0.2); color: var(--yellow); border: 1px solid var(--yellow); border-radius: 4px; padding: 0 4px; font-size: 0.7rem; margin-left: 3px; vertical-align: middle; }
+  .badge-hg { display: inline-block; background: rgba(165,94,234,0.2); color: var(--purple); border: 1px solid var(--purple); border-radius: 4px; padding: 0 4px; font-size: 0.7rem; margin-left: 3px; vertical-align: middle; }
+  .badge-vm { display: inline-block; background: rgba(46,213,115,0.2); color: var(--green); border: 1px solid var(--green); border-radius: 4px; padding: 0 4px; font-size: 0.7rem; margin-left: 3px; vertical-align: middle; }
+  .badge-cms { display: inline-block; background: rgba(0,210,255,0.2); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; font-size: 0.7rem; margin-left: 3px; vertical-align: middle; }
+  .badge-misconfig { display: inline-block; background: rgba(255,71,87,0.2); color: var(--red); border: 1px solid var(--red); border-radius: 4px; padding: 0 4px; font-size: 0.7rem; margin-left: 3px; vertical-align: middle; }
+
+  /* Coloring for extensions/numbers and SIP endpoints */
+  .ext-colored { font-weight: 600; }
+  .sip-colored { font-style: italic; }
+
+  /* Server processing mode */
+  .mode-toggle {
+    display: flex;
+    gap: 0;
+    margin: 0 24px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .mode-btn {
+    padding: 10px 24px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    user-select: none;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+  }
+  .mode-btn:hover { color: var(--text); }
+  .mode-btn.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+
+  .server-zone {
+    padding: 20px 24px;
+    display: none;
+  }
+  .server-zone.active { display: block; }
+  .viewer-zone { display: none; }
+  .viewer-zone.active { display: flex; }
+
+  .server-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    max-width: 900px;
+  }
+  .server-form .upload-card {
+    min-width: unset;
+    flex: unset;
+  }
+  .server-form .form-group {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .server-form .form-group label {
+    display: block;
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .server-form .form-group input[type="text"],
+  .server-form .form-group textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-family: inherit;
+  }
+  .server-form .form-group textarea {
+    min-height: 60px;
+    resize: vertical;
+  }
+  .server-form .form-group input:focus,
+  .server-form .form-group textarea:focus { outline: none; border-color: var(--accent); }
+
+  .process-btn {
+    grid-column: 1 / -1;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    color: #fff;
+    padding: 14px 32px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .process-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,210,255,0.3); }
+  .process-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  .spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .process-status {
+    grid-column: 1 / -1;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    text-align: center;
+    min-height: 24px;
+  }
+  .process-status.error { color: var(--red); }
+  .process-status.success { color: var(--green); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📡 CDR Processor Observatory</h1>
+  <div class="stats">
+    <span>CDRs: <span class="num" id="stat-cdrs">0</span></span>
+    <span>Legs: <span class="num" id="stat-legs">0</span></span>
+    <span>Calls: <span class="num" id="stat-calls">0</span></span>
+    <span>SIP Known: <span class="num" id="stat-sip-known">0</span></span>
+    <span>SIP Unknown: <span class="num" id="stat-sip-unknown" style="color:var(--red)">0</span></span>
+    <span>Suppressed: <span class="num" id="stat-suppressed" style="color:var(--orange)">0</span></span>
+  </div>
+</header>
+
+<div class="mode-toggle">
+  <button class="mode-btn active" onclick="setMode('server')">🚀 Process on Server</button>
+  <button class="mode-btn" onclick="setMode('viewer')">📂 View Pre-processed Files</button>
+</div>
+
+<!-- Server Processing Mode -->
+<div class="server-zone active" id="server-zone">
+  <div class="server-form">
+    <div class="upload-card" id="drop-sip-server" onclick="this.querySelector('input').click()">
+      <input type="file" id="server-sip-input" accept=".xml,.txt,.csv" onchange="serverSipChanged(this.files[0])">
+      <div class="icon">🔌</div>
+      <div class="label">SIP Endpoints File (XML)</div>
+      <div class="filename" id="server-sip-filename"></div>
+    </div>
+    <div class="upload-card" id="drop-cdr-server" onclick="this.querySelector('input').click()">
+      <input type="file" id="server-cdr-input" accept=".csv,.bf" multiple onchange="serverCdrChanged(this.files)">
+      <div class="icon">📄</div>
+      <div class="label">Raw CDR Files (.csv / .bf)</div>
+      <div class="filename" id="server-cdr-filename"></div>
+    </div>
+    <button class="process-btn" id="process-btn" onclick="processOnServer()">🚀 Process CDR Files</button>
+    <div class="process-status" id="process-status"></div>
+  </div>
+</div>
+
+<!-- Viewer Mode (pre-processed files) -->
+<div class="upload-zone viewer-zone" id="viewer-zone">
+  <div class="upload-card" id="drop-sip" onclick="this.querySelector('input').click()">
+    <input type="file" accept=".txt,.csv,.json" onchange="loadSipFile(this.files[0])">
+    <div class="icon">🔌</div>
+    <div class="label">SIP Endpoints File</div>
+    <div class="filename" id="sip-filename"></div>
+  </div>
+  <div class="upload-card" id="drop-cdr" onclick="this.querySelector('input').click()">
+    <input type="file" accept=".csv" multiple onchange="loadCdrFiles(this.files)">
+    <div class="icon">📄</div>
+    <div class="label">CDR Files (decoded CSV)</div>
+    <div class="filename" id="cdr-filename"></div>
+  </div>
+  <div class="upload-card" id="drop-legs" onclick="this.querySelector('input').click()">
+    <input type="file" accept=".csv" multiple onchange="loadLegsFiles(this.files)">
+    <div class="icon">🦵</div>
+    <div class="label">Legs Output CSV</div>
+    <div class="filename" id="legs-filename"></div>
+  </div>
+  <div class="upload-card" id="drop-log" onclick="this.querySelector('input').click()">
+    <input type="file" accept=".log,.txt" onchange="loadLogFile(this.files[0])">
+    <div class="icon">📋</div>
+    <div class="label">Engine Log</div>
+    <div class="filename" id="log-filename"></div>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-panel="panel-cdrs">Decoded CDRs <span class="badge" id="badge-cdrs">0</span></div>
+  <div class="tab" data-panel="panel-legs">Legs <span class="badge" id="badge-legs">0</span></div>
+  <div class="tab" data-panel="panel-sip">SIP Endpoints <span class="badge" id="badge-sip">0</span></div>
+  <div class="tab" data-panel="panel-log">Process Log</div>
+</div>
+
+<div class="panel active" id="panel-cdrs">
+  <div class="filter-bar">
+    <input type="text" id="filter-cdrs" placeholder="Filter CDRs (Thread ID, IP, extension...)" oninput="renderCdrs()">
+    <label><input type="checkbox" id="only-unknown-cdrs" onchange="renderCdrs()"> Unknown SIP only</label>
+    <button class="btn" onclick="exportCsv('cdrs')">📥 Export CSV</button>
+  </div>
+  <div class="grid-container" id="grid-cdrs">
+    <div class="empty-state"><div class="icon">📄</div>Drop a decoded CDR CSV to get started</div>
+  </div>
+</div>
+
+<div class="panel" id="panel-legs">
+  <div class="filter-bar">
+    <input type="text" id="filter-legs" placeholder="Filter legs (Thread ID, direction, extension...)" oninput="renderLegs()">
+    <label><input type="checkbox" id="only-unknown-legs" onchange="renderLegs()"> Unknown SIP only</label>
+    <label><input type="checkbox" id="show-suppressed" onchange="renderLegs()"> Show suppressed</label>
+    <button class="btn" onclick="exportCsv('legs')">📥 Export CSV</button>
+  </div>
+  <div class="grid-container" id="grid-legs">
+    <div class="empty-state"><div class="icon">🦵</div>Drop a legs CSV to see processed output</div>
+  </div>
+</div>
+
+<div class="panel" id="panel-sip">
+  <div class="section-title">Known Endpoints <span class="count" id="sip-known-count">0</span></div>
+  <div class="sip-list" id="sip-known-list"></div>
+  <div class="section-title" style="margin-top:20px">
+    Unknown Endpoints (found in CDRs, not in file) <span class="count" id="sip-unknown-count" style="color:var(--red)">0</span>
+  </div>
+  <div class="sip-list" id="sip-unknown-list"></div>
+</div>
+
+<div class="panel" id="panel-log">
+  <div class="filter-bar">
+    <input type="text" id="filter-log" placeholder="Filter log..." oninput="renderLog()">
+    <label><input type="checkbox" id="only-warn-log" onchange="renderLog()"> Warnings/Errors only</label>
+    <label><input type="checkbox" id="only-tagged-log" onchange="renderLog()"> Tagged lines only</label>
+    <button class="btn" onclick="exportCsv('log')">📥 Export Log</button>
+  </div>
+  <div class="log-container" id="log-content">
+    <div class="empty-state"><div class="icon">📋</div>Drop an engine log file</div>
+  </div>
+</div>
+
+<!-- Direction tooltip -->
+<div class="direction-tooltip" id="direction-tooltip" style="display:none"></div>
+
+<script>
+// =============================================================================
+// STATE
+// =============================================================================
+let sipEndpoints = new Set();
+let cdrRows = [];
+let cdrHeaders = [];
+let legsRows = [];
+let legsHeaders = [];
+let logLines = [];
+let unknownSips = new Set();
+const MAX_ROWS = 5000;
+
+// Parsed tracer data from log
+let tracerData = {
+  directions: [],   // {threadId, legIndex, direction, reason, callerIsInternal, destIsInternal, ingress, egress, origPartyId, termPartyId}
+  suppressed: [],    // {threadId, leg, reason}
+  fields: [],        // {threadId, legIndex, field, value, sourceFile, sourceLine, sourceColumn}
+  merges: [],        // {threadId, attemptLine, answerLine, destExt, reason}
+  sips: [],          // {endpoint, classification, source}
+  specials: [],      // {number, type, detectionSource}
+  transfers: [],     // {threadId, legIndex, transferFrom, fromRule, transferTo, toRule}
+};
+
+// Special numbers detected from log
+let specialNumbers = {}; // number -> type (Routing, HuntGroup, Voicemail, CMS)
+
+// Column order persistence
+let columnOrders = JSON.parse(localStorage.getItem('cdr-viewer-columns') || '{}');
+
+// =============================================================================
+// COLOR PALETTES
+// =============================================================================
+
+// Thread ID colors (12 distinct hues)
+const THREAD_COLORS = [
+  '#00d2ff', '#7b2ff7', '#2ed573', '#ffa502', '#ff6b81', '#70a1ff',
+  '#ff4757', '#eccc68', '#a4b0be', '#ff7f50', '#1dd1a1', '#c44dff'
+];
+
+// Extension/phone number colors (20 distinct, different from thread palette)
+const EXT_COLORS = [
+  '#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4',
+  '#42d4f4', '#f032e6', '#bfef45', '#fabed4', '#469990',
+  '#dcbeff', '#9A6324', '#800000', '#aaffc3', '#808000',
+  '#ffd8b1', '#000075', '#a9a9a9', '#e6beff', '#fffac8'
+];
+
+// SIP endpoint colors (15 distinct)
+const SIP_COLORS = [
+  '#ff6b6b', '#48dbfb', '#ff9ff3', '#feca57', '#54a0ff',
+  '#5f27cd', '#01a3a4', '#c8d6e5', '#ff9f43', '#ee5a24',
+  '#0abde3', '#10ac84', '#341f97', '#f368e0', '#2e86de'
+];
+
+// Caches
+let threadColorCache = {};
+let extColorCache = {};
+let sipColorCache = {};
+let threadColorIdx = 0;
+let extColorIdx = 0;
+let sipColorIdx = 0;
+
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return h;
+}
+
+function getThreadColor(threadId) {
+  if (!threadId) return null;
+  if (threadColorCache[threadId] !== undefined) return threadColorCache[threadId];
+  const idx = ((hashStr(threadId) % THREAD_COLORS.length) + THREAD_COLORS.length) % THREAD_COLORS.length;
+  threadColorCache[threadId] = THREAD_COLORS[idx];
+  return THREAD_COLORS[idx];
+}
+
+function getExtColor(ext) {
+  if (!ext || ext.length < 2) return null;
+  // Only color things that look like extensions/phone numbers
+  if (!/^[\d\+\*#]{2,}$/.test(ext.trim())) return null;
+  const key = ext.trim();
+  if (extColorCache[key] !== undefined) return extColorCache[key];
+  const idx = ((hashStr(key) % EXT_COLORS.length) + EXT_COLORS.length) % EXT_COLORS.length;
+  extColorCache[key] = EXT_COLORS[idx];
+  return EXT_COLORS[idx];
+}
+
+function getSipColor(endpoint) {
+  if (!endpoint) return null;
+  const key = endpoint.trim().toLowerCase();
+  if (sipColorCache[key] !== undefined) return sipColorCache[key];
+  const idx = ((hashStr(key) % SIP_COLORS.length) + SIP_COLORS.length) % SIP_COLORS.length;
+  sipColorCache[key] = SIP_COLORS[idx];
+  return SIP_COLORS[idx];
+}
+
+// =============================================================================
+// TABS
+// =============================================================================
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.panel).classList.add('active');
+  });
+});
+
+// =============================================================================
+// CSV PARSER
+// =============================================================================
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length === 0) return { headers: [], rows: [] };
+  function parseLine(line) {
+    const fields = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"' && line[i+1] === '"') { current += '"'; i++; }
+        else if (ch === '"') { inQuotes = false; }
+        else { current += ch; }
+      } else {
+        if (ch === '"') { inQuotes = true; }
+        else if (ch === ',') { fields.push(current.trim()); current = ''; }
+        else { current += ch; }
+      }
+    }
+    fields.push(current.trim());
+    return fields;
+  }
+  const headers = parseLine(lines[0]);
+  const rows = [];
+  for (let i = 1; i < lines.length && rows.length < MAX_ROWS; i++) {
+    const fields = parseLine(lines[i]);
+    if (fields.length >= 2) {
+      const row = {};
+      headers.forEach((h, j) => row[h] = fields[j] || '');
+      rows.push(row);
+    }
+  }
+  return { headers, rows };
+}
+
+// =============================================================================
+// SIP FILE PARSER
+// =============================================================================
+function parseSipFile(text) {
+  const endpoints = new Set();
+  const trimmed = text.trim();
+  if (trimmed.startsWith('[')) {
+    try { JSON.parse(trimmed).forEach(e => endpoints.add(String(e).toLowerCase())); return endpoints; } catch(e) {}
+  }
+  const lines = trimmed.split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('#'));
+  const first = lines[0]?.toLowerCase() || '';
+  const start = (first.includes('endpoint') || first.includes('address') || first.includes('host')) ? 1 : 0;
+  for (let i = start; i < lines.length; i++) {
+    const val = lines[i].split(',')[0].trim();
+    if (val) endpoints.add(val.toLowerCase());
+  }
+  return endpoints;
+}
+
+// =============================================================================
+// SIP ENDPOINT DETECTION
+// =============================================================================
+function extractSipsFromData(rows, headers) {
+  const sips = new Set();
+  const sipCols = headers.filter(h => {
+    const hl = h.toLowerCase();
+    return hl.includes('ipaddr') || hl.includes('ip_addr') || hl.includes('origip') || hl.includes('destip')
+      || hl.includes('ingress') || hl.includes('egress') || hl.includes('proxy')
+      || hl.includes('gateway') || hl.includes('endpoint') || hl.includes('sipaddr')
+      || hl.includes('origdevicename') || hl.includes('destdevicename');
+  });
+  rows.forEach(row => {
+    sipCols.forEach(col => {
+      const v = (row[col] || '').trim();
+      if (v && v !== '0' && v !== '0.0.0.0' && v.length > 1) sips.add(v.toLowerCase());
+    });
+  });
+  return sips;
+}
+
+function computeUnknownSips() {
+  unknownSips.clear();
+  const allDataSips = new Set();
+  extractSipsFromData(cdrRows, cdrHeaders).forEach(s => allDataSips.add(s));
+  extractSipsFromData(legsRows, legsHeaders).forEach(s => allDataSips.add(s));
+  if (sipEndpoints.size > 0) {
+    allDataSips.forEach(s => { if (!sipEndpoints.has(s)) unknownSips.add(s); });
+  }
+  updateStats();
+}
+
+function isRowUnknown(row, headers) {
+  if (unknownSips.size === 0) return false;
+  const sipCols = headers.filter(h => {
+    const hl = h.toLowerCase();
+    return hl.includes('ipaddr') || hl.includes('ip_addr') || hl.includes('origip') || hl.includes('destip')
+      || hl.includes('ingress') || hl.includes('egress') || hl.includes('proxy')
+      || hl.includes('gateway') || hl.includes('endpoint') || hl.includes('sipaddr')
+      || hl.includes('origdevicename') || hl.includes('destdevicename');
+  });
+  return sipCols.some(col => unknownSips.has((row[col] || '').trim().toLowerCase()));
+}
+
+// =============================================================================
+// THREAD ID AND COLUMN DETECTION
+// =============================================================================
+function findThreadIdColumn(headers) {
+  const candidates = ['threadid', 'thread_id', 'threadidsequence', 'globalcallid_callid', 'gid', 'gidsequence', 'globalcallid', 'callid', 'call_id'];
+  for (const c of candidates) {
+    const found = headers.find(h => h.toLowerCase().replace(/[\s_-]/g, '') === c.replace(/[\s_-]/g, ''));
+    if (found) return found;
+  }
+  return headers.find(h => h.toLowerCase().includes('thread') || h.toLowerCase().includes('gid') || h.toLowerCase().includes('callid')) || null;
+}
+
+function findSourceLineColumn(headers) {
+  return headers.find(h => h.toLowerCase() === 'sourceline' || h.toLowerCase() === 'source_line') || null;
+}
+
+function findSourceFileColumn(headers) {
+  return headers.find(h => h.toLowerCase() === 'sourcefile' || h.toLowerCase() === 'source_file') || null;
+}
+
+function findDirectionColumn(headers) {
+  return headers.find(h => h.toLowerCase().includes('direction') || h.toLowerCase() === 'calldirection') || null;
+}
+
+// Extension/phone number columns
+function isExtensionColumn(headerName) {
+  const h = headerName.toLowerCase();
+  return h.includes('extension') || h.includes('callerext') || h.includes('calledext')
+    || h.includes('callingnum') || h.includes('dialednum') || h.includes('dialedani')
+    || h.includes('destinationext') || h.includes('calledparty') || h.includes('callerext')
+    || h.includes('huntgroup') || h.includes('forwardfrom') || h.includes('forwardto')
+    || h.includes('transferfrom') || h.includes('transferto') || h.includes('forwardingparty')
+    || h.includes('number') || h.includes('ext') || h === 'extension'
+    || h.includes('origpartyid') || h.includes('termpartyid');
+}
+
+// SIP endpoint columns
+function isSipColumn(headerName) {
+  const h = headerName.toLowerCase();
+  return h.includes('ingress') || h.includes('egress') || h.includes('endpoint')
+    || h.includes('ipaddr') || h.includes('origdevice') || h.includes('destdevice');
+}
+
+// =============================================================================
+// VALUE FORMATTING WITH COLORS AND BADGES
+// =============================================================================
+function isPhoneOrExt(val) {
+  return /^[\d\+\*#]{2,}$/.test(val.trim());
+}
+
+function isSipEndpoint(val) {
+  return /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(val.trim()) || val.includes(':');
+}
+
+function getSpecialBadge(val) {
+  const v = val.trim();
+  const type = specialNumbers[v];
+  if (!type) return '';
+  switch(type) {
+    case 'Routing': return '<span class="badge-routing" title="Routing Number">R</span>';
+    case 'HuntGroup': return '<span class="badge-hg" title="Hunt Group">HG</span>';
+    case 'Voicemail': return '<span class="badge-vm" title="Voicemail">VM</span>';
+    case 'CMS': return '<span class="badge-cms" title="CMS/ACD">CMS</span>';
+    default: return '';
+  }
+}
+
+function getMisconfigBadge(val, row, headers) {
+  // SIP endpoint marked unknown + OrigPartyId=900/902 → suspected misconfigured
+  const v = val.trim().toLowerCase();
+  if (!unknownSips.has(v)) return '';
+  // Check if any row field has OrigPartyId 900 or 902
+  const origCol = headers.find(h => h.toLowerCase().includes('origpartyid'));
+  if (origCol) {
+    const pid = row[origCol];
+    if (pid === '900' || pid === '902') {
+      return '<span class="badge-misconfig" title="Suspected misconfigured SIP: unknown endpoint with internal PBX code">⚠</span>';
+    }
+  }
+  return '';
+}
+
+function formatCellValue(val, headerName, row, headers) {
+  if (!val || val.trim() === '') return '';
+  const v = val.trim();
+  const escaped = esc(v);
+  
+  // Extension/phone coloring
+  if (isExtensionColumn(headerName) && isPhoneOrExt(v)) {
+    const color = getExtColor(v);
+    const badge = getSpecialBadge(v);
+    if (color) return `<span class="ext-colored" style="color:${color}">${escaped}</span>${badge}`;
+    return escaped + badge;
+  }
+  
+  // SIP endpoint coloring
+  if (isSipColumn(headerName) && v.length > 3) {
+    const sipColor = getSipColor(v);
+    const badge = getMisconfigBadge(v, row, headers);
+    const isUnknown = unknownSips.has(v.toLowerCase());
+    if (sipColor) return `<span class="sip-colored" style="color:${sipColor}${isUnknown ? ';text-decoration:underline wavy var(--red)' : ''}">${escaped}</span>${badge}`;
+    return escaped + badge;
+  }
+
+  // Auto-detect phone numbers in any column
+  if (isPhoneOrExt(v) && v.length >= 3) {
+    const color = getExtColor(v);
+    const badge = getSpecialBadge(v);
+    if (color) return `<span class="ext-colored" style="color:${color}">${escaped}</span>${badge}`;
+    return escaped + badge;
+  }
+
+  return escaped;
+}
+
+// =============================================================================
+// DIRECTION TOOLTIP
+// =============================================================================
+let tooltipTimeout = null;
+
+function showDirectionTooltip(e, threadId, legIndex) {
+  const relevant = tracerData.directions.filter(d => 
+    d.threadId === threadId && (legIndex === undefined || d.legIndex == legIndex));
+  if (relevant.length === 0) return;
+  
+  const tooltip = document.getElementById('direction-tooltip');
+  let html = '<div class="dt-header">Direction Reasoning</div>';
+  relevant.forEach(d => {
+    html += `<div class="dt-line">${esc(d.direction)}: ${esc(d.reason)}</div>`;
+    html += `<div class="dt-line" style="color:#666">  Caller Internal=${d.callerIsInternal} Dest Internal=${d.destIsInternal} Ingress=${esc(d.ingress||'')} Egress=${esc(d.egress||'')} OrigPID=${d.origPartyId} TermPID=${d.termPartyId}</div>`;
+  });
+  tooltip.innerHTML = html;
+  tooltip.style.display = 'block';
+  tooltip.style.left = Math.min(e.clientX + 10, window.innerWidth - 520) + 'px';
+  tooltip.style.top = Math.min(e.clientY + 10, window.innerHeight - 200) + 'px';
+}
+
+function hideDirectionTooltip() {
+  document.getElementById('direction-tooltip').style.display = 'none';
+}
+
+// =============================================================================
+// RENDER TABLES
+// =============================================================================
+function getOrderedHeaders(gridId, headers) {
+  const saved = columnOrders[gridId];
+  if (saved && saved.length === headers.length) {
+    // Verify all headers exist
+    const headerSet = new Set(headers);
+    if (saved.every(h => headerSet.has(h))) return saved;
+  }
+  return [...headers];
+}
+
+function saveColumnOrder(gridId, headers) {
+  columnOrders[gridId] = headers;
+  localStorage.setItem('cdr-viewer-columns', JSON.stringify(columnOrders));
+}
+
+function renderTable(containerId, headers, rows, filterVal, onlyUnknown, gridId, extraOpts = {}) {
+  const container = document.getElementById(containerId);
+  if (rows.length === 0 && !extraOpts.suppressedRows?.length) {
+    container.innerHTML = '<div class="empty-state"><div class="icon">📭</div>No data loaded</div>';
+    return;
+  }
+
+  const orderedHeaders = getOrderedHeaders(gridId, headers);
+  const threadCol = findThreadIdColumn(orderedHeaders);
+  const dirCol = findDirectionColumn(orderedHeaders);
+  const sourceLineCol = findSourceLineColumn(orderedHeaders);
+  const sourceFileCol = findSourceFileColumn(orderedHeaders);
+  const filter = filterVal.toLowerCase();
+
+  // Combine regular and suppressed rows
+  let allRows = rows.map(r => ({ ...r, _suppressed: false }));
+  if (extraOpts.showSuppressed && extraOpts.suppressedRows) {
+    allRows = allRows.concat(extraOpts.suppressedRows.map(r => ({ ...r, _suppressed: true })));
+  }
+
+  let filtered = allRows;
+  if (filter) {
+    filtered = allRows.filter(r => orderedHeaders.some(h => (r[h] || '').toLowerCase().includes(filter)));
+  }
+  if (onlyUnknown) {
+    filtered = filtered.filter(r => isRowUnknown(r, orderedHeaders));
+  }
+
+  // Add Reason column for suppressed legs
+  const showReason = extraOpts.showSuppressed && extraOpts.suppressedRows?.length > 0;
+  const displayHeaders = showReason ? [...orderedHeaders, 'Reason'] : orderedHeaders;
+
+  let html = '<table><thead><tr>';
+  html += '<th>#</th>';
+  displayHeaders.forEach((h, hi) => {
+    html += `<th draggable="true" data-col="${hi}" data-grid="${gridId}" data-header="${esc(h)}">${esc(h)}<span class="resize-handle" data-col="${hi}"></span></th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  filtered.forEach((row, i) => {
+    const threadId = threadCol ? row[threadCol] : null;
+    const threadColor = getThreadColor(threadId);
+    const isSuppressed = row._suppressed;
+    const unknownClass = isRowUnknown(row, orderedHeaders) ? ' unknown-sip' : '';
+    const suppressedClass = isSuppressed ? ' suppressed-row' : '';
+    const sourceFile = sourceFileCol ? row[sourceFileCol] : '';
+    const sourceLine = sourceLineCol ? row[sourceLineCol] : '';
+    
+    html += `<tr class="${unknownClass}${suppressedClass}" data-threadid="${esc(threadId||'')}" data-sourcefile="${esc(sourceFile)}" data-sourceline="${esc(sourceLine)}" style="${threadColor ? `border-left: 3px solid ${threadColor}; background: ${threadColor}11` : ''}">`;
+    html += `<td style="color:var(--text-dim)">${i + 1}</td>`;
+    
+    displayHeaders.forEach(h => {
+      if (h === 'Reason') {
+        html += `<td style="color:var(--orange);font-style:italic">${esc(row._reason || '')}</td>`;
+        return;
+      }
+      const v = row[h] || '';
+      const isDir = dirCol && h === dirCol;
+      const formatted = formatCellValue(v, h, row, orderedHeaders);
+      
+      if (isDir && threadId) {
+        html += `<td class="dir-cell" data-threadid="${esc(threadId)}" data-legindex="${row['LegIndex']||''}" onmouseenter="showDirectionTooltip(event,'${esc(threadId)}','${row['LegIndex']||''}')" onmouseleave="hideDirectionTooltip()">${formatted}</td>`;
+      } else {
+        html += `<td>${formatted}</td>`;
+      }
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+
+  // Attach row click handlers for CDR↔Legs correlation
+  container.querySelectorAll('tbody tr').forEach(tr => {
+    tr.addEventListener('click', () => handleRowClick(tr, gridId));
+  });
+
+  // Attach column drag-and-drop
+  setupColumnDragDrop(container, gridId, orderedHeaders);
+  // Attach column resize
+  setupColumnResize(container);
+}
+
+// =============================================================================
+// CDR↔LEGS CORRELATION
+// =============================================================================
+let highlightedRows = new Set();
+
+function handleRowClick(tr, gridId) {
+  // Clear existing highlights
+  document.querySelectorAll('.highlight-row').forEach(el => el.classList.remove('highlight-row'));
+  
+  const threadId = tr.dataset.threadid;
+  const sourceFile = tr.dataset.sourcefile;
+  const sourceLine = tr.dataset.sourceline;
+
+  if (gridId === 'cdrs' && sourceLine) {
+    // CDR click → highlight legs with matching source line
+    document.querySelectorAll('#grid-legs tbody tr').forEach(legTr => {
+      if (legTr.dataset.sourceline === sourceLine) {
+        legTr.classList.add('highlight-row');
+      }
+    });
+    tr.classList.add('highlight-row');
+  } else if (gridId === 'legs' && sourceFile && sourceLine) {
+    // Legs click → highlight CDR rows with matching source line
+    document.querySelectorAll('#grid-cdrs tbody tr').forEach(cdrTr => {
+      if (cdrTr.dataset.sourceline === sourceLine) {
+        cdrTr.classList.add('highlight-row');
+      }
+    });
+    tr.classList.add('highlight-row');
+  }
+
+  // Also highlight by Thread ID
+  if (threadId) {
+    document.querySelectorAll(`tr[data-threadid="${threadId}"]`).forEach(el => el.classList.add('highlight-row'));
+    // Highlight matching log lines
+    document.querySelectorAll('.log-line').forEach(el => {
+      el.classList.remove('highlight-log');
+      if (el.dataset.threadid === threadId) el.classList.add('highlight-log');
+    });
+  }
+}
+
+// =============================================================================
+// COLUMN DRAG-AND-DROP
+// =============================================================================
+function setupColumnDragDrop(container, gridId, headers) {
+  const ths = container.querySelectorAll('th[draggable]');
+  let dragSrcIdx = null;
+
+  ths.forEach(th => {
+    th.addEventListener('dragstart', e => {
+      dragSrcIdx = parseInt(th.dataset.col);
+      th.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    th.addEventListener('dragover', e => {
+      e.preventDefault();
+      th.classList.add('drag-over');
+    });
+    th.addEventListener('dragleave', () => th.classList.remove('drag-over'));
+    th.addEventListener('drop', e => {
+      e.preventDefault();
+      th.classList.remove('drag-over');
+      const dropIdx = parseInt(th.dataset.col);
+      if (dragSrcIdx !== null && dragSrcIdx !== dropIdx) {
+        const newHeaders = [...headers];
+        const [moved] = newHeaders.splice(dragSrcIdx, 1);
+        newHeaders.splice(dropIdx, 0, moved);
+        saveColumnOrder(gridId, newHeaders);
+        if (gridId === 'cdrs') renderCdrs();
+        else if (gridId === 'legs') renderLegs();
+      }
+    });
+    th.addEventListener('dragend', () => {
+      th.classList.remove('dragging');
+      ths.forEach(t => t.classList.remove('drag-over'));
+    });
+  });
+}
+
+// =============================================================================
+// COLUMN RESIZE
+// =============================================================================
+function setupColumnResize(container) {
+  const handles = container.querySelectorAll('.resize-handle');
+  handles.forEach(handle => {
+    handle.addEventListener('mousedown', e => {
+      e.stopPropagation();
+      e.preventDefault();
+      const th = handle.parentElement;
+      const startX = e.clientX;
+      const startWidth = th.offsetWidth;
+      
+      const onMove = ev => {
+        th.style.width = Math.max(40, startWidth + ev.clientX - startX) + 'px';
+        th.style.minWidth = th.style.width;
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
+
+// =============================================================================
+// RENDER FUNCTIONS
+// =============================================================================
+function renderCdrs() {
+  const filter = document.getElementById('filter-cdrs').value;
+  const onlyUnknown = document.getElementById('only-unknown-cdrs').checked;
+  renderTable('grid-cdrs', cdrHeaders, cdrRows, filter, onlyUnknown, 'cdrs');
+}
+
+function renderLegs() {
+  const filter = document.getElementById('filter-legs').value;
+  const onlyUnknown = document.getElementById('only-unknown-legs').checked;
+  const showSuppressed = document.getElementById('show-suppressed').checked;
+  
+  // Build suppressed rows from tracer data
+  const suppressedRows = tracerData.suppressed.map(s => {
+    const row = {};
+    legsHeaders.forEach(h => row[h] = '');
+    // Parse leg description for fields
+    const threadCol = findThreadIdColumn(legsHeaders);
+    if (threadCol) row[threadCol] = s.threadId || '';
+    row._reason = s.reason || '';
+    // Try to extract info from leg description
+    const legMatch = s.leg.match(/Leg#(\d+)/);
+    if (legMatch) row['LegIndex'] = legMatch[1];
+    const destMatch = s.leg.match(/DestExt=(\S+)/);
+    if (destMatch) {
+      const destCol = legsHeaders.find(h => h.toLowerCase().includes('destinationext'));
+      if (destCol) row[destCol] = destMatch[1];
+    }
+    const lineMatch = s.leg.match(/Line=(\d+)/);
+    if (lineMatch) {
+      const lineCol = findSourceLineColumn(legsHeaders);
+      if (lineCol) row[lineCol] = lineMatch[1];
+    }
+    return row;
+  });
+
+  renderTable('grid-legs', legsHeaders, legsRows, filter, onlyUnknown, 'legs', {
+    showSuppressed,
+    suppressedRows
+  });
+}
+
+function renderSipPanel() {
+  const knownList = document.getElementById('sip-known-list');
+  const unknownList = document.getElementById('sip-unknown-list');
+  
+  knownList.innerHTML = '';
+  sipEndpoints.forEach(ep => {
+    const color = getSipColor(ep);
+    const style = color ? `style="border-color:${color};color:${color}"` : '';
+    knownList.innerHTML += `<span class="sip-chip known" ${style}>${esc(ep)}</span>`;
+  });
+  
+  unknownList.innerHTML = '';
+  unknownSips.forEach(ep => {
+    unknownList.innerHTML += `<span class="sip-chip unknown">${esc(ep)}</span>`;
+  });
+  
+  document.getElementById('sip-known-count').textContent = sipEndpoints.size;
+  document.getElementById('sip-unknown-count').textContent = unknownSips.size;
+}
+
+// =============================================================================
+// LOG PARSING
+// =============================================================================
+const TAG_PATTERNS = {
+  'DIRECTION':  { cls: 'tag-direction',  regex: /\[DIRECTION\]/ },
+  'SUPPRESSED': { cls: 'tag-suppressed', regex: /\[SUPPRESSED\]/ },
+  'FIELD':      { cls: 'tag-field',      regex: /\[FIELD\]/ },
+  'MERGE':      { cls: 'tag-merge',      regex: /\[MERGE\]/ },
+  'SIP':        { cls: 'tag-sip',        regex: /\[SIP\]/ },
+  'SPECIAL':    { cls: 'tag-special',    regex: /\[SPECIAL\]/ },
+  'TRANSFER':   { cls: 'tag-transfer',   regex: /\[TRANSFER\]/ },
+};
+
+function parseTaggedLogLines(lines) {
+  tracerData = { directions: [], suppressed: [], fields: [], merges: [], sips: [], specials: [], transfers: [] };
+  specialNumbers = {};
+
+  lines.forEach(line => {
+    // Parse [DIRECTION] lines
+    const dirMatch = line.match(/\[DIRECTION\]\s*ThreadId=(\S*)\s+Leg=(\S*)\s+Direction=(\S*)\s+Reason=(.*?)\s+CallerInternal=(\S+)\s+DestInternal=(\S+)\s+Ingress=(\S*)\s+Egress=(\S*)\s+OrigPartyId=(\S*)\s+TermPartyId=(\S*)/);
+    if (dirMatch) {
+      tracerData.directions.push({
+        threadId: dirMatch[1], legIndex: dirMatch[2], direction: dirMatch[3],
+        reason: dirMatch[4], callerIsInternal: dirMatch[5] === 'True',
+        destIsInternal: dirMatch[6] === 'True', ingress: dirMatch[7],
+        egress: dirMatch[8], origPartyId: parseInt(dirMatch[9]) || 0,
+        termPartyId: parseInt(dirMatch[10]) || 0
+      });
+    }
+
+    // Parse [SUPPRESSED] lines
+    const suppMatch = line.match(/\[SUPPRESSED\]\s*ThreadId=(\S*)\s+Leg=(.*?)\s+Reason=(.*)/);
+    if (suppMatch) {
+      tracerData.suppressed.push({ threadId: suppMatch[1], leg: suppMatch[2], reason: suppMatch[3] });
+    }
+
+    // Parse [FIELD] lines
+    const fieldMatch = line.match(/\[FIELD\]\s*ThreadId=(\S*)\s+Leg=(\S*)\s+Field=(\S*)\s+Value=(\S*)\s+SourceFile=(\S*)\s+SourceLine=(\S*)\s+SourceColumn=(\S*)/);
+    if (fieldMatch) {
+      tracerData.fields.push({
+        threadId: fieldMatch[1], legIndex: fieldMatch[2], field: fieldMatch[3],
+        value: fieldMatch[4], sourceFile: fieldMatch[5],
+        sourceLine: parseInt(fieldMatch[6]) || 0, sourceColumn: fieldMatch[7]
+      });
+    }
+
+    // Parse [MERGE] lines
+    const mergeMatch = line.match(/\[MERGE\]\s*ThreadId=(\S*)\s+AttemptLine=(\S*)\s+AnswerLine=(\S*)\s+DestExt=(\S*)\s+Reason=(.*)/);
+    if (mergeMatch) {
+      tracerData.merges.push({
+        threadId: mergeMatch[1], attemptLine: parseInt(mergeMatch[2]) || 0,
+        answerLine: parseInt(mergeMatch[3]) || 0, destExt: mergeMatch[4], reason: mergeMatch[5]
+      });
+    }
+
+    // Parse [SIP] lines
+    const sipMatch = line.match(/\[SIP\]\s*Endpoint=(\S*)\s+Classification=(\S*)\s+Source=(.*)/);
+    if (sipMatch) {
+      tracerData.sips.push({ endpoint: sipMatch[1], classification: sipMatch[2], source: sipMatch[3] });
+    }
+
+    // Parse [SPECIAL] lines
+    const specialMatch = line.match(/\[SPECIAL\]\s*Number=(\S*)\s+Type=(\S*)\s+DetectionSource=(.*)/);
+    if (specialMatch) {
+      tracerData.specials.push({ number: specialMatch[1], type: specialMatch[2], detectionSource: specialMatch[3] });
+      specialNumbers[specialMatch[1]] = specialMatch[2];
+    }
+
+    // Parse [TRANSFER] lines
+    const xferMatch = line.match(/\[TRANSFER\]\s*ThreadId=(\S*)\s+Leg=(\S*)\s+TransferFrom=(\S*)\s+TransferFromRule=(.*?)\s+TransferTo=(\S*)\s+TransferToRule=(.*)/);
+    if (xferMatch) {
+      tracerData.transfers.push({
+        threadId: xferMatch[1], legIndex: xferMatch[2], transferFrom: xferMatch[3],
+        fromRule: xferMatch[4], transferTo: xferMatch[5], toRule: xferMatch[6]
+      });
+    }
+  });
+
+  updateStats();
+}
+
+function extractThreadIdFromLine(line) {
+  const m = line.match(/ThreadId=(\S+)/);
+  return m ? m[1] : null;
+}
+
+function renderLog() {
+  const container = document.getElementById('log-content');
+  if (logLines.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="icon">📋</div>Drop an engine log file</div>';
+    return;
+  }
+  const filter = document.getElementById('filter-log').value.toLowerCase();
+  const onlyWarn = document.getElementById('only-warn-log').checked;
+  const onlyTagged = document.getElementById('only-tagged-log').checked;
+
+  let html = '';
+  logLines.forEach((line, idx) => {
+    const ll = line.toLowerCase();
+    if (filter && !ll.includes(filter)) return;
+
+    const isError = ll.includes('error') || ll.includes('exception') || ll.includes('fail');
+    const isWarn = ll.includes('warn') || ll.includes('warning');
+    const isInfo = ll.includes('info') || ll.includes('processing') || ll.includes('started') || ll.includes('completed');
+
+    // Detect tag
+    let tagCls = '';
+    let isTagged = false;
+    for (const [tag, info] of Object.entries(TAG_PATTERNS)) {
+      if (info.regex.test(line)) {
+        tagCls = info.cls;
+        isTagged = true;
+        break;
+      }
+    }
+
+    if (onlyWarn && !isError && !isWarn) return;
+    if (onlyTagged && !isTagged) return;
+
+    const baseCls = isError ? 'error' : isWarn ? 'warn' : isInfo ? 'info' : 'dim';
+    const threadId = extractThreadIdFromLine(line);
+    const clickable = threadId ? 'clickable' : '';
+
+    html += `<div class="log-line ${baseCls} ${tagCls} ${clickable}" data-threadid="${threadId||''}" data-idx="${idx}" ${clickable ? `onclick="handleLogLineClick(this)"` : ''}>${esc(line)}</div>`;
+  });
+
+  container.innerHTML = html || '<div class="log-line dim">No matching log lines</div>';
+}
+
+function handleLogLineClick(el) {
+  const threadId = el.dataset.threadid;
+  if (!threadId) return;
+
+  // Clear previous log highlights
+  document.querySelectorAll('.highlight-log').forEach(e => e.classList.remove('highlight-log'));
+  document.querySelectorAll('.highlight-row').forEach(e => e.classList.remove('highlight-row'));
+
+  // Highlight this log line
+  el.classList.add('highlight-log');
+
+  // Highlight matching rows in CDR and Legs grids
+  document.querySelectorAll(`tr[data-threadid="${threadId}"]`).forEach(tr => tr.classList.add('highlight-row'));
+
+  // Highlight all log lines with same thread ID
+  document.querySelectorAll(`.log-line[data-threadid="${threadId}"]`).forEach(logEl => logEl.classList.add('highlight-log'));
+}
+
+// =============================================================================
+// EXPORT CSV
+// =============================================================================
+function exportCsv(type) {
+  let headers, rows, filename;
+  
+  if (type === 'cdrs') {
+    headers = cdrHeaders;
+    rows = cdrRows;
+    filename = 'cdrs_export.csv';
+  } else if (type === 'legs') {
+    headers = legsHeaders;
+    rows = legsRows;
+    filename = 'legs_export.csv';
+  } else if (type === 'log') {
+    const filter = document.getElementById('filter-log').value.toLowerCase();
+    const onlyWarn = document.getElementById('only-warn-log').checked;
+    const lines = logLines.filter(l => {
+      if (filter && !l.toLowerCase().includes(filter)) return false;
+      if (onlyWarn && !l.toLowerCase().includes('warn') && !l.toLowerCase().includes('error')) return false;
+      return true;
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    downloadBlob(blob, 'log_export.txt');
+    return;
+  }
+
+  if (!headers || !rows) return;
+
+  // Apply current filter
+  const filterEl = document.getElementById(`filter-${type}`);
+  const filter = filterEl ? filterEl.value.toLowerCase() : '';
+  let filtered = rows;
+  if (filter) {
+    filtered = rows.filter(r => headers.some(h => (r[h] || '').toLowerCase().includes(filter)));
+  }
+
+  const csvLines = [];
+  csvLines.push(headers.map(h => `"${h.replace(/"/g, '""')}"`).join(','));
+  filtered.forEach(row => {
+    csvLines.push(headers.map(h => `"${(row[h]||'').replace(/"/g, '""')}"`).join(','));
+  });
+  
+  const blob = new Blob([csvLines.join('\n')], { type: 'text/csv' });
+  downloadBlob(blob, filename);
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// =============================================================================
+// STATS
+// =============================================================================
+function updateStats() {
+  document.getElementById('stat-cdrs').textContent = cdrRows.length;
+  document.getElementById('stat-legs').textContent = legsRows.length;
+  document.getElementById('stat-sip-known').textContent = sipEndpoints.size;
+  document.getElementById('stat-sip-unknown').textContent = unknownSips.size;
+  document.getElementById('stat-suppressed').textContent = tracerData.suppressed.length;
+  document.getElementById('badge-cdrs').textContent = cdrRows.length;
+  document.getElementById('badge-legs').textContent = legsRows.length;
+  document.getElementById('badge-sip').textContent = sipEndpoints.size + unknownSips.size;
+  if (unknownSips.size > 0) document.getElementById('badge-sip').classList.add('red');
+  
+  const threadCol = findThreadIdColumn(legsHeaders) || findThreadIdColumn(cdrHeaders);
+  const threads = new Set();
+  if (threadCol) {
+    [...legsRows, ...cdrRows].forEach(r => { if (r[threadCol]) threads.add(r[threadCol]); });
+  }
+  document.getElementById('stat-calls').textContent = threads.size;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// =============================================================================
+// FILE LOADERS
+// =============================================================================
+function loadSipFile(file) {
+  if (!file) return;
+  document.getElementById('sip-filename').textContent = file.name;
+  document.getElementById('drop-sip').classList.add('loaded');
+  file.text().then(text => {
+    sipEndpoints = parseSipFile(text);
+    computeUnknownSips();
+    renderSipPanel();
+    renderCdrs();
+    renderLegs();
+  });
+}
+
+function loadCdrFiles(files) {
+  if (!files.length) return;
+  const names = Array.from(files).map(f => f.name).join(', ');
+  document.getElementById('cdr-filename').textContent = names;
+  document.getElementById('drop-cdr').classList.add('loaded');
+  
+  cdrRows = [];
+  cdrHeaders = [];
+  let loaded = 0;
+  Array.from(files).forEach(file => {
+    file.text().then(text => {
+      const { headers, rows } = parseCSV(text);
+      if (cdrHeaders.length === 0) cdrHeaders = headers;
+      cdrRows.push(...rows);
+      if (cdrRows.length > MAX_ROWS) cdrRows.length = MAX_ROWS;
+      loaded++;
+      if (loaded === files.length) {
+        threadColorCache = {};
+        extColorCache = {};
+        computeUnknownSips();
+        renderCdrs();
+        renderSipPanel();
+      }
+    });
+  });
+}
+
+function loadLegsFiles(files) {
+  if (!files.length) return;
+  const names = Array.from(files).map(f => f.name).join(', ');
+  document.getElementById('legs-filename').textContent = names;
+  document.getElementById('drop-legs').classList.add('loaded');
+  
+  legsRows = [];
+  legsHeaders = [];
+  let loaded = 0;
+  Array.from(files).forEach(file => {
+    file.text().then(text => {
+      const { headers, rows } = parseCSV(text);
+      if (legsHeaders.length === 0) legsHeaders = headers;
+      legsRows.push(...rows);
+      if (legsRows.length > MAX_ROWS) legsRows.length = MAX_ROWS;
+      loaded++;
+      if (loaded === files.length) {
+        computeUnknownSips();
+        renderLegs();
+        renderSipPanel();
+      }
+    });
+  });
+}
+
+function loadLogFile(file) {
+  if (!file) return;
+  document.getElementById('log-filename').textContent = file.name;
+  document.getElementById('drop-log').classList.add('loaded');
+  file.text().then(text => {
+    logLines = text.split(/\r?\n/).filter(l => l.trim());
+    parseTaggedLogLines(logLines);
+    renderLog();
+    // Re-render grids with special number info
+    renderCdrs();
+    renderLegs();
+  });
+}
+
+// =============================================================================
+// DRAG & DROP
+// =============================================================================
+// =============================================================================
+// MODE TOGGLE
+// =============================================================================
+function setMode(mode) {
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('server-zone').classList.remove('active');
+  document.getElementById('viewer-zone').classList.remove('active');
+  if (mode === 'server') {
+    document.querySelectorAll('.mode-btn')[0].classList.add('active');
+    document.getElementById('server-zone').classList.add('active');
+  } else {
+    document.querySelectorAll('.mode-btn')[1].classList.add('active');
+    document.getElementById('viewer-zone').classList.add('active');
+  }
+}
+
+// =============================================================================
+// SERVER PROCESSING
+// =============================================================================
+let serverSipFile = null;
+let serverCdrFiles = [];
+
+function serverSipChanged(file) {
+  serverSipFile = file;
+  document.getElementById('server-sip-filename').textContent = file ? file.name : '';
+  if (file) document.getElementById('drop-sip-server').classList.add('loaded');
+}
+
+function serverCdrChanged(files) {
+  serverCdrFiles = Array.from(files);
+  document.getElementById('server-cdr-filename').textContent = serverCdrFiles.map(f => f.name).join(', ');
+  if (serverCdrFiles.length) document.getElementById('drop-cdr-server').classList.add('loaded');
+}
+
+async function processOnServer() {
+  if (serverCdrFiles.length === 0) {
+    document.getElementById('process-status').textContent = '⚠️ Please select at least one CDR file';
+    document.getElementById('process-status').className = 'process-status error';
+    return;
+  }
+
+  const btn = document.getElementById('process-btn');
+  const status = document.getElementById('process-status');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Processing...';
+  status.textContent = 'Uploading files and processing...';
+  status.className = 'process-status';
+
+  try {
+    const formData = new FormData();
+    
+    if (serverSipFile) {
+      formData.append('sipFile', serverSipFile);
+    }
+    
+    serverCdrFiles.forEach(file => {
+      formData.append('cdrFiles', file);
+    });
+
+
+
+    const response = await fetch('/api/process', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+      throw new Error(errData.error || `Server error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Populate CDR grid
+    if (data.decodedCdrs && data.decodedCdrs.length > 0) {
+      cdrHeaders = Object.keys(data.decodedCdrs[0]);
+      cdrRows = data.decodedCdrs;
+      document.getElementById('badge-cdrs').textContent = cdrRows.length;
+    }
+
+    // Populate Legs grid
+    if (data.legs && data.legs.length > 0) {
+      legsHeaders = Object.keys(data.legs[0]);
+      legsRows = data.legs;
+      document.getElementById('badge-legs').textContent = legsRows.length;
+    }
+
+    // Populate Log
+    if (data.log && data.log.length > 0) {
+      logLines = data.log.map(entry => {
+        const ts = entry.timestamp || '';
+        const level = entry.level || 'INFO';
+        const msg = entry.message || '';
+        return `[${ts}] ${level}: ${msg}`;
+      });
+      parseTaggedLogLines(logLines);
+    }
+
+    // Reset caches
+    threadColorCache = {};
+    extColorCache = {};
+    sipColorCache = {};
+
+    // Extract special numbers from log
+    if (data.log) {
+      data.log.forEach(entry => {
+        const msg = entry.message || '';
+        // Auto-detected routing numbers
+        const routingMatch = msg.match(/Auto-detected routing number.*?:\s*(\S+)/);
+        if (routingMatch) specialNumbers[routingMatch[1]] = 'Routing';
+        // Auto-detected voicemail
+        const vmMatch = msg.match(/Auto-detected voicemail number:\s*(\S+)/);
+        if (vmMatch) specialNumbers[vmMatch[1]] = 'Voicemail';
+      });
+    }
+
+    computeUnknownSips();
+    renderCdrs();
+    renderLegs();
+    renderLog();
+    renderSipPanel();
+    updateStats();
+
+    // Show stats
+    const s = data.stats || {};
+    status.textContent = `✅ Processed ${s.totalFilesProcessed || 0} files, ${s.totalRecordsProcessed || 0} records → ${s.totalCallsIdentified || 0} calls in ${s.processingTimeMs || 0}ms (${Math.round(s.recordsPerSecond || 0)} rec/sec)`;
+    status.className = 'process-status success';
+
+    // Auto-switch to Legs tab
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    const legsTab = document.querySelector('[data-panel="panel-legs"]');
+    if (legsTab) legsTab.classList.add('active');
+    document.getElementById('panel-legs').classList.add('active');
+
+  } catch (err) {
+    status.textContent = `❌ ${err.message}`;
+    status.className = 'process-status error';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🚀 Process CDR Files';
+  }
+}
+
+// Drag & drop for server mode cards
+['drop-sip-server', 'drop-cdr-server'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('dragover', e => { e.preventDefault(); el.style.borderColor = 'var(--accent)'; });
+  el.addEventListener('dragleave', () => { el.style.borderColor = ''; });
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    el.style.borderColor = '';
+    const files = e.dataTransfer.files;
+    if (id === 'drop-sip-server') {
+      const input = document.getElementById('server-sip-input');
+      input.files = files;
+      serverSipChanged(files[0]);
+    } else {
+      const input = document.getElementById('server-cdr-input');
+      input.files = files;
+      serverCdrChanged(files);
+    }
+  });
+});
+
+['drop-sip', 'drop-cdr', 'drop-legs', 'drop-log'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('dragover', e => { e.preventDefault(); el.style.borderColor = 'var(--accent)'; });
+  el.addEventListener('dragleave', () => { el.style.borderColor = ''; });
+  el.addEventListener('drop', e => {
+    e.preventDefault();
+    el.style.borderColor = '';
+    const files = e.dataTransfer.files;
+    if (id === 'drop-sip') loadSipFile(files[0]);
+    else if (id === 'drop-cdr') loadCdrFiles(files);
+    else if (id === 'drop-legs') loadLegsFiles(files);
+    else if (id === 'drop-log') loadLogFile(files[0]);
+  });
+});
+</script>
+</body>
+</html>

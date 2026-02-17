@@ -1,0 +1,13 @@
+[Unit]
+Description=CDR Observatory
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/shai/clawd/cdr-observatory
+ExecStart=/home/shai/.dotnet/dotnet run --project /home/shai/clawd/cdr-observatory/CdrObservatory.csproj
+Environment=ASPNETCORE_URLS=http://100.118.220.96:8090
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
