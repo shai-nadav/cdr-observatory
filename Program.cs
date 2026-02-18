@@ -95,30 +95,35 @@ app.MapPost("/api/process", async (HttpRequest request) =>
         var huntGroupNumbers = ParseFormList(form, "huntGroupNumbers");
         var voicemailNumber = form.ContainsKey("voicemailNumber") ? form["voicemailNumber"].ToString().Trim() : null;
 
-        // Build config
-        var config = new CdrProcessorConfig
+        // Build settings
+        var settings = new ObservatorySettings
         {
             InputFolder = inputDir,
             OutputFolder = outputDir,
+            ArchiveFolder = Path.Combine(tempDir, "archive"),
+            DecodedFolder = Path.Combine(tempDir, "decoded"),
             SipEndpointsFile = sipFilePath,
             WriteDecodedCdrs = true,
+            DeleteInputFiles = false,
             ExtensionRanges = extensionRanges,
             RoutingNumbers = routingNumbers,
             HuntGroupNumbers = huntGroupNumbers,
             VoicemailNumber = string.IsNullOrWhiteSpace(voicemailNumber) ? null : voicemailNumber,
-            MaxCachedLegs = 0, // Unlimited for batch mode
-            FlushMode = "batch",
             FilePattern = "*.*",
         };
 
-        config.ArchiveFolder = Path.Combine(tempDir, "archive");
-        Directory.CreateDirectory(config.ArchiveFolder);
+        Directory.CreateDirectory(settings.ArchiveFolder);
+        Directory.CreateDirectory(settings.DecodedFolder);
 
         // Run processing
         var cache = new InMemoryCacheStore();
         var logger = new LogCollector();
         var tracer = new ProcessingTracer(logger);
-        var engine = new CdrProcessorEngine(config, cache, logger, tracer);
+        ISipEndpointsProvider sipProvider = sipFilePath != null
+            ? (ISipEndpointsProvider)new FileSipEndpointsProvider(sipFilePath)
+            : new FileSipEndpointsProvider("");
+        var pendingRepo = new NullPendingCallsRepository();
+        var engine = new CdrProcessorEngine(settings, logger, sipProvider, pendingRepo, cache, tracer);
         var result = engine.ProcessFolder();
 
         // Read decoded CDR output if available
