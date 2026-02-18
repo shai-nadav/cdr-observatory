@@ -485,12 +485,13 @@
 </div>
 
 <div class="panel" id="panel-sip">
-  <div class="section-title">Known Endpoints <span class="count" id="sip-known-count">0</span></div>
-  <div class="sip-list" id="sip-known-list"></div>
-  <div class="section-title" style="margin-top:20px">
-    Unknown Endpoints (found in CDRs, not in file) <span class="count" id="sip-unknown-count" style="color:var(--red)">0</span>
+  <div class="section-title" style="margin-bottom:4px">Known Endpoints <span class="count" id="sip-known-count">0</span></div>
+  <div class="section-title" style="margin-bottom:8px; margin-top:0">
+    Unknown Endpoints <span class="count" id="sip-unknown-count" style="color:var(--red)">0</span>
   </div>
-  <div class="sip-list" id="sip-unknown-list"></div>
+  <div class="grid-container" id="grid-sip">
+    <div class="empty-state"><div class="icon">🔌</div>Upload files above and click Process to get started</div>
+  </div>
 </div>
 
 <div class="panel" id="panel-log">
@@ -1120,23 +1121,65 @@ function renderLegs() {
 }
 
 function renderSipPanel() {
-  const knownList = document.getElementById('sip-known-list');
-  const unknownList = document.getElementById('sip-unknown-list');
+  const container = document.getElementById('grid-sip');
   
-  knownList.innerHTML = '';
+  // Build unique SIP entries from tracer data + legacy sets
+  const sipMap = new Map(); // endpoint -> {classification, source}
+  
+  // From tracer [SIP] lines
+  tracerData.sips.forEach(s => {
+    const key = s.endpoint.toLowerCase();
+    if (!sipMap.has(key) || s.source !== 'Thread context') {
+      sipMap.set(key, { endpoint: s.endpoint, classification: s.classification, source: s.source });
+    }
+  });
+  
+  // From legacy sipEndpoints set (viewer mode)
   sipEndpoints.forEach(ep => {
-    const color = getSipColor(ep);
-    const style = color ? `style="border-color:${color};color:${color}"` : '';
-    knownList.innerHTML += `<span class="sip-chip known" ${style}>${esc(ep)}</span>`;
+    const key = ep.toLowerCase();
+    if (!sipMap.has(key)) sipMap.set(key, { endpoint: ep, classification: 'Known', source: 'SIP file' });
   });
   
-  unknownList.innerHTML = '';
+  // From unknownSips set
   unknownSips.forEach(ep => {
-    unknownList.innerHTML += `<span class="sip-chip unknown">${esc(ep)}</span>`;
+    const key = ep.toLowerCase();
+    if (!sipMap.has(key)) sipMap.set(key, { endpoint: ep, classification: 'Unknown', source: 'CDR data' });
   });
+
+  const entries = Array.from(sipMap.values());
+  const known = entries.filter(e => e.classification !== 'Unknown');
+  const unknown = entries.filter(e => e.classification === 'Unknown');
   
-  document.getElementById('sip-known-count').textContent = sipEndpoints.size;
-  document.getElementById('sip-unknown-count').textContent = unknownSips.size;
+  document.getElementById('sip-known-count').textContent = known.length;
+  document.getElementById('sip-unknown-count').textContent = unknown.length;
+  document.getElementById('badge-sip').textContent = entries.length;
+
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="empty-state"><div class="icon">🔌</div>Upload files above and click Process to get started</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr><th>#</th><th>Endpoint</th><th>Classification</th><th>Source</th></tr></thead><tbody>';
+  entries.sort((a, b) => {
+    if (a.classification === 'Unknown' && b.classification !== 'Unknown') return 1;
+    if (a.classification !== 'Unknown' && b.classification === 'Unknown') return -1;
+    return a.endpoint.localeCompare(b.endpoint);
+  });
+  entries.forEach((e, i) => {
+    const color = getSipColor(e.endpoint);
+    const isUnknown = e.classification === 'Unknown';
+    const cls = isUnknown ? 'unknown-sip' : '';
+    const isPstn = e.classification === 'PSTN';
+    const classColor = isUnknown ? 'var(--red)' : isPstn ? 'var(--yellow)' : 'var(--green)';
+    html += `<tr class="${cls}">`;
+    html += `<td style="color:var(--text-dim)">${i + 1}</td>`;
+    html += `<td><span class="sip-colored" style="color:${color}">${esc(e.endpoint)}</span></td>`;
+    html += `<td style="color:${classColor}">${esc(e.classification)}</td>`;
+    html += `<td style="color:var(--text-dim)">${esc(e.source)}</td>`;
+    html += `</tr>`;
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
 }
 
 // =============================================================================
