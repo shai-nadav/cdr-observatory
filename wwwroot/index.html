@@ -464,7 +464,7 @@
     <button class="btn" onclick="exportCsv('cdrs')">📥 Export CSV</button>
   </div>
   <div class="grid-container" id="grid-cdrs">
-    <div class="empty-state"><div class="icon">📄</div>Drop a decoded CDR CSV to get started</div>
+    <div class="empty-state"><div class="icon">📄</div>Upload files above and click Process to get started</div>
   </div>
 </div>
 
@@ -476,7 +476,7 @@
     <button class="btn" onclick="exportCsv('legs')">📥 Export CSV</button>
   </div>
   <div class="grid-container" id="grid-legs">
-    <div class="empty-state"><div class="icon">🦵</div>Drop a legs CSV to see processed output</div>
+    <div class="empty-state"><div class="icon">🦵</div>Upload files above and click Process to get started</div>
   </div>
 </div>
 
@@ -497,7 +497,7 @@
     <button class="btn" onclick="exportCsv('log')">📥 Export Log</button>
   </div>
   <div class="log-container" id="log-content">
-    <div class="empty-state"><div class="icon">📋</div>Drop an engine log file</div>
+    <div class="empty-state"><div class="icon">📋</div>Upload files above and click Process to get started</div>
   </div>
 </div>
 
@@ -1224,7 +1224,7 @@ function extractThreadIdFromLine(line) {
 function renderLog() {
   const container = document.getElementById('log-content');
   if (logLines.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="icon">📋</div>Drop an engine log file</div>';
+    container.innerHTML = '<div class="empty-state"><div class="icon">📋</div>Upload files above and click Process to get started</div>';
     return;
   }
   const filter = document.getElementById('filter-log').value.toLowerCase();
