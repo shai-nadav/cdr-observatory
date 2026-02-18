@@ -1393,12 +1393,17 @@ function downloadBlob(blob, filename) {
 function updateStats() {
   document.getElementById('stat-cdrs').textContent = cdrRows.length;
   document.getElementById('stat-legs').textContent = legsRows.length;
-  document.getElementById('stat-sip-known').textContent = sipEndpoints.size;
-  document.getElementById('stat-sip-unknown').textContent = unknownSips.size;
+  // SIP stats: use tracer data if available, fall back to legacy sets
+  const tracerKnown = tracerData.sips.filter(s => s.classification !== 'Unknown');
+  const tracerUnknown = tracerData.sips.filter(s => s.classification === 'Unknown');
+  const knownCount = tracerKnown.length > 0 ? new Set(tracerKnown.map(s => s.endpoint.toLowerCase())).size : sipEndpoints.size;
+  const unknownCount = tracerUnknown.length > 0 ? new Set(tracerUnknown.map(s => s.endpoint.toLowerCase())).size : unknownSips.size;
+  document.getElementById('stat-sip-known').textContent = knownCount;
+  document.getElementById('stat-sip-unknown').textContent = unknownCount;
   document.getElementById('stat-suppressed').textContent = tracerData.suppressed.length;
   document.getElementById('badge-cdrs').textContent = cdrRows.length;
   document.getElementById('badge-legs').textContent = legsRows.length;
-  document.getElementById('badge-sip').textContent = sipEndpoints.size + unknownSips.size;
+  document.getElementById('badge-sip').textContent = knownCount + unknownCount;
   if (unknownSips.size > 0) document.getElementById('badge-sip').classList.add('red');
   
   const threadCol = findThreadIdColumn(legsHeaders) || findThreadIdColumn(cdrHeaders);
