@@ -1479,9 +1479,14 @@ function serverSipChanged(file) {
   if (file) document.getElementById('drop-sip-server').classList.add('loaded');
 }
 
-function serverCdrChanged(files) {
-  serverCdrFiles = Array.from(files);
-  document.getElementById('server-cdr-filename').textContent = serverCdrFiles.map(f => f.name).join(', ');
+function serverCdrChanged(files, append) {
+  if (append) {
+    serverCdrFiles = serverCdrFiles.concat(Array.from(files));
+  } else {
+    serverCdrFiles = Array.from(files);
+  }
+  document.getElementById('server-cdr-filename').textContent = 
+    serverCdrFiles.length + ' file(s): ' + serverCdrFiles.map(f => f.name).join(', ');
   if (serverCdrFiles.length) document.getElementById('drop-cdr-server').classList.add('loaded');
 }
 
@@ -1613,9 +1618,7 @@ async function processOnServer() {
       input.files = files;
       serverSipChanged(files[0]);
     } else {
-      const input = document.getElementById('server-cdr-input');
-      input.files = files;
-      serverCdrChanged(files);
+      serverCdrChanged(files, true);
     }
   });
 });
