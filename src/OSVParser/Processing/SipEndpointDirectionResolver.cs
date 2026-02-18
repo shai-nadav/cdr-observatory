@@ -202,7 +202,7 @@ namespace Pipeline.Components.OSVParser.Processing
             callerIsInternal = ResolveSideInternalFromSipOrParty(raw.IngressEndpoint, raw.OrigPartyId, isCaller: true);
             destIsInternal = ResolveSideInternalFromSipOrParty(raw.EgressEndpoint, raw.TermPartyId, isCaller: false);
 
-            // Injection Point E: Trace SIP classification for ingress
+            // Trace SIP classification for ingress
             if (!string.IsNullOrEmpty(raw.IngressEndpoint))
             {
                 var ingressNorm = NormalizeEndpoint(raw.IngressEndpoint);
@@ -248,12 +248,12 @@ namespace Pipeline.Components.OSVParser.Processing
                         callerIsInternal = false;
                         destIsInternal = false;
                     }
-
-                    _tracer.TraceSipClassification(
-                        string.Format("{0}+{1}", raw.IngressEndpoint ?? "null", raw.EgressEndpoint ?? "null"),
-                        string.Format("CallerInternal={0} DestInternal={1}", callerIsInternal, destIsInternal),
-                        string.Format("Thread context from {0} prior legs", priorLegs.Count));
                 }
+
+                _tracer.TraceSipClassification(
+                    string.Format("{0}+{1}", raw.IngressEndpoint ?? "null", raw.EgressEndpoint ?? "null"),
+                    string.Format("CallerInternal={0} DestInternal={1}", callerIsInternal, destIsInternal),
+                    string.Format("Thread context from {0} prior legs", priorLegs.Count));
             }
         }
     }

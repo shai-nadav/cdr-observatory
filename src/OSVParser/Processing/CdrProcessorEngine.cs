@@ -31,6 +31,7 @@ namespace Pipeline.Components.OSVParser.Processing
         private readonly ISipEndpointResolver _sipResolver;
         private readonly HashSet<string> _unknownSipEndpoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly DirectionResolver _directionResolver;
+        private readonly IProcessingTracer _tracer;
         private readonly ICacheStore _cache;
         private readonly CdrCsvParser _parser;
         private readonly Dictionary<string, CandidateExtension> _candidates;
@@ -57,7 +58,6 @@ namespace Pipeline.Components.OSVParser.Processing
         private readonly HashSet<string> _outputtedThreadIds;
         private CsvOutputWriter.LegsStreamWriter _legsStreamWriter;
         private DecodedCdrWriter _decodedCdrWriter;
-        private readonly IProcessingTracer _tracer;
 /// <summary>
         /// Create engine with interface-based dependencies (for TEM-CA or testing).
         /// </summary>
@@ -78,6 +78,7 @@ namespace Pipeline.Components.OSVParser.Processing
             _logger = logger;
             _pendingRepo = pendingRepo;
             _cache = cache;
+            _tracer = tracer ?? NullProcessingTracer.Instance;
             
             // Build internal state from settings
             _extensionRange = new ExtensionRangeParser(settings.ExtensionRanges);
@@ -92,7 +93,6 @@ namespace Pipeline.Components.OSVParser.Processing
             {
                 _sipResolver = new SipEndpointProviderAdapter(sipProvider);
             }
-            _tracer = tracer ?? NullProcessingTracer.Instance;
             _directionResolver = new DirectionResolver(_extensionRange, _sipResolver, _cache, IsInternalNumber, GetVoicemailNumber, _logger, _tracer);
 
             _parser = new CdrCsvParser();
@@ -137,12 +137,12 @@ namespace Pipeline.Components.OSVParser.Processing
             _config = config;
             _cache = cache;
             _logger = logger ?? new NullProcessorLogger();
+            _tracer = tracer ?? NullProcessingTracer.Instance;
             _extensionRange = new ExtensionRangeParser(ExtensionRangeLoader.LoadRanges(config));
             var mapper = new SipEndpointMapper();
             if (!string.IsNullOrEmpty(config.SipEndpointsFile))
                 mapper.LoadFromFile(config.SipEndpointsFile);
             _sipResolver = mapper;
-            _tracer = tracer ?? NullProcessingTracer.Instance;
             _directionResolver = new DirectionResolver(_extensionRange, _sipResolver, _cache, IsInternalNumber, GetVoicemailNumber, _logger, _tracer);
             _parser = new CdrCsvParser();
             _candidates = new Dictionary<string, CandidateExtension>(StringComparer.OrdinalIgnoreCase);
@@ -302,6 +302,15 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
             if (string.IsNullOrWhiteSpace(outputFolder))
                 throw new InvalidOperationException("OutputFolder is required for streaming legs output.");
 
+            var archiveFolder = ArchiveFolder;
+            if (DeleteInputFiles && string.IsNullOrWhiteSpace(archiveFolder))
+            {
+                var archiveError = "ArchiveFolder is required when DeleteInputFiles is true.";
+                _logger.Error(archiveError);
+                result.Errors.Add(archiveError);
+                return result;
+            }
+
             _legsStreamWriter = new CsvOutputWriter().CreateLegsStreamWriter(outputFolder);
 
             for (int i = 0; i < files.Length; i++)
@@ -320,7 +329,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                     int recordCount = 0;
 
                     if (WriteDecodedCdrs)
-                        _decodedCdrWriter = csvOutputWriter.CreateDecodedCdrWriter(files[i]);
+                        _decodedCdrWriter = csvOutputWriter.CreateDecodedCdrWriter(files[i], _settings?.DecodedFolder);
 
                     foreach (var raw in _parser.StreamParseFile(files[i]))
                     {
@@ -340,20 +349,20 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                     }
 
                     result.TotalFilesProcessed++;
-                    // Archive processed file if configured
-                    if (DeleteInputFiles && !string.IsNullOrEmpty(ArchiveFolder))
+                    // Move processed source file into archive when input-file deletion is enabled.
+                    if (DeleteInputFiles)
                     {
                         try
                         {
-                            if (!Directory.Exists(ArchiveFolder))
-                                Directory.CreateDirectory(ArchiveFolder);
-                            var destPath = Path.Combine(ArchiveFolder, fileName);
+                            if (!Directory.Exists(archiveFolder))
+                                Directory.CreateDirectory(archiveFolder);
+                            var destPath = Path.Combine(archiveFolder, fileName);
                             // Handle duplicate filenames with timestamp suffix
                             if (File.Exists(destPath))
                             {
                                 var nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
                                 var ext = Path.GetExtension(fileName);
-                                destPath = Path.Combine(ArchiveFolder, 
+                                destPath = Path.Combine(archiveFolder, 
                                     $"{nameWithoutExt}_{DateTime.UtcNow:yyyyMMddHHmmss}{ext}");
                             }
                             File.Move(files[i], destPath);
@@ -489,12 +498,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 EgressEndpoint = raw.EgressEndpoint,
             };
 
-            // Debug: verify endpoint copying
-            if (!string.IsNullOrEmpty(raw.IngressEndpoint) || !string.IsNullOrEmpty(raw.EgressEndpoint))
-            {
-                _logger.Debug($"Created ProcessedLeg with Ingress={leg.IngressEndpoint}, Egress={leg.EgressEndpoint}, GidSequence={leg.GidSequence}");
-            }
-
             // Trace field origins for all significant fields
             _tracer.TraceFieldOrigin(threadId, 0, "DialedNumber", raw.DialedNumber, raw.SourceFile, raw.SourceLine, "spec101");
             _tracer.TraceFieldOrigin(threadId, 0, "DestinationExt", raw.DestinationExt, raw.SourceFile, raw.SourceLine, "spec128");
@@ -503,6 +506,12 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
             _tracer.TraceFieldOrigin(threadId, 0, "CallingNumber", raw.CallingNumber, raw.SourceFile, raw.SourceLine, "spec12");
             _tracer.TraceFieldOrigin(threadId, 0, "CalledParty", raw.CalledParty, raw.SourceFile, raw.SourceLine, "spec11");
             _tracer.TraceFieldOrigin(threadId, 0, "ForwardingParty", raw.ForwardingParty, raw.SourceFile, raw.SourceLine, "spec65");
+
+            // Debug: verify endpoint copying
+            if (!string.IsNullOrEmpty(raw.IngressEndpoint) || !string.IsNullOrEmpty(raw.EgressEndpoint))
+            {
+                _logger.Debug($"Created ProcessedLeg with Ingress={leg.IngressEndpoint}, Egress={leg.EgressEndpoint}, GidSequence={leg.GidSequence}");
+            }
 
             // Store raw fields for transfer chain analysis
             leg.CalledParty = raw.CalledParty;
@@ -544,7 +553,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
             leg.CallDirection = _directionResolver.ResolveDirection(raw, threadId, out callerIsInternal, out destIsInternal);
             _directionResolver.AssignCallerCalledFields(leg, raw, leg.CallDirection, callerIsInternal, destIsInternal);
 
-            // Injection Point A: Trace direction decision
             _tracer.TraceDirectionDecision(
                 threadId, leg.LegIndex, leg.CallDirection.ToString(),
                 string.Format("SIP/PartyId resolve: Ingress={0} Egress={1}", raw.IngressEndpoint ?? "null", raw.EgressEndpoint ?? "null"),
@@ -552,7 +560,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 raw.IngressEndpoint, raw.EgressEndpoint,
                 raw.OrigPartyId, raw.TermPartyId);
 
-            // Injection Point B2: Trace caller/called field origins after assignment
             if (!string.IsNullOrEmpty(leg.CallerExtension))
                 _tracer.TraceFieldOrigin(threadId, 0, "CallerExtension", leg.CallerExtension, raw.SourceFile, raw.SourceLine, "CallingNumber(internal)");
             if (!string.IsNullOrEmpty(leg.CallerExternal))
@@ -638,7 +645,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 }
             }
 
-            // Injection Point B3: Trace HG number field origin
             if (!string.IsNullOrEmpty(leg.HuntGroupNumber))
                 _tracer.TraceFieldOrigin(threadId, 0, "HuntGroupNumber", leg.HuntGroupNumber, raw.SourceFile, raw.SourceLine, "HG record merge");
 
@@ -769,41 +775,12 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 _cache.StorePendingLeg(raw.GlobalCallId, leg);
             }
         }
-
-        /// <summary>
-        /// Maximum time gap (seconds) between legs to consider them part of the same call.
-        /// </summary>
-        private const int CallLinkingWindowSeconds = 300; // 5 minutes
-
         
-        /// <summary>
-        /// Auto-detect VM pilot number from CDR patterns.
-        /// VM is likely: high-volume 11999x destination that never makes calls.
-        /// </summary>
-        /// <summary>
-        /// Track numbers for extension discovery. Extensions are numbers that appear
-        /// as both caller AND callee (indicates internal extensions).
-        /// </summary>
-        /// <summary>
-        /// Check if a number looks like an extension (3-6 digits, numeric).
-        /// </summary>
-        private bool IsLikelyExtension(string number)
-        {
-            if (string.IsNullOrEmpty(number)) return false;
-            // Must be 3-6 digits and all numeric
-            if (number.Length < 3 || number.Length > 6) return false;
-            foreach (char c in number)
-            {
-                if (!char.IsDigit(c)) return false;
-            }
-            return true;
-        }
 
         /// <summary>
         /// Identify discovered extensions (numbers seen as both caller and callee)
         /// and save them to the configured file.
         /// </summary>
-/// <summary>
         /// A leg is a VM leg when:
         /// 1. PerCallFeatureExt bit 64 is set ("CF to Voicemail" flag), OR
         /// 2. CalledParty matches the configured or auto-detected voicemail number
@@ -871,24 +848,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
             return known;
         }
 
-        private bool ResolveSideInternalFromSipOrParty(string endpoint, int partyId, bool isCaller)
-        {
-            if (IsSipKnown(endpoint))
-                return !IsSipPstn(endpoint);
-
-            if (isCaller)
-            {
-                if (partyId == 900) return true;  // OpenScape internal
-                if (partyId == 901) return false; // PSTN
-            }
-            else
-            {
-                if (partyId == 902) return true;  // OpenScape internal
-                if (partyId == 901) return false; // PSTN
-            }
-
-            return true; // conservative default
-        }
         /// <summary>
         /// True when the number is a configured routing-only extension (CMS, pilot, etc.).
         /// </summary>
@@ -1133,7 +1092,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                             : $"{current.SourceFile}+{next.SourceFile}";
                         current.SourceLine = current.SourceLine; // keep first leg's line
 
-                        // Injection Point D: Trace leg merge
                         _tracer.TraceLegMerge(
                             current.ThreadId,
                             current.SourceLine,
@@ -1255,7 +1213,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 leg.TransferTo = xferTo;
                 prevTransferFrom = xferFrom;
 
-                // Injection Point G: Trace transfer chain computation
+                // Determine which rule produced TransferFrom
                 string fromRule = "None";
                 if (!string.IsNullOrEmpty(xferFrom))
                 {
@@ -1266,6 +1224,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                     else fromRule = "Inherited from previous leg";
                 }
                 
+                // Determine which rule produced TransferTo
                 string toRule = "None";
                 if (xferTo != null)
                 {
@@ -1561,6 +1520,12 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
             // Extension/DestExt field handling
             foreach (var leg in orderedLegs)
             {
+                if (call.CallDirection == CallDirection.Outgoing)
+                {
+                    leg.Extension = leg.CallerExtension;
+                    leg.DestinationExt = "";
+                }
+                else
                 if (call.CallDirection == CallDirection.Incoming
                     || call.CallDirection == CallDirection.Outgoing
                     || call.CallDirection == CallDirection.TrunkToTrunk
@@ -1583,7 +1548,15 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                         leg.DestinationExt = leg.CalledParty;
                     }
                 }
+
+                if (leg.IsPickup && !string.IsNullOrEmpty(leg.TransferFrom) )
+                {
+                    _logger.Debug($"Clear TransferFrom for pickup call");
+                    leg.TransferFrom = "";
+                }
             }
+
+           
         }
 
         private void EmitCall(ProcessedCall call, ProcessingResult result)
@@ -1627,7 +1600,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 var hgOnlyLegs = allLegs.Where(l => l.IsHgOnly).ToList();
                 var legs = allLegs.Where(l => !l.IsHgOnly).ToList();
                 
-                // Injection Point J: Trace HG-only legs that have no matching CDR
+                // Trace HG-only legs that have no matching CDR
                 foreach (var hgLeg in hgOnlyLegs)
                 {
                     _tracer.TraceSuppressedLeg(
@@ -1673,7 +1646,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                     else if (ingressIsPstn && leg.CallDirection == CallDirection.Internal)
                         leg.CallDirection = CallDirection.Incoming;
                     
-                    // Injection Point I: Trace direction override
                     if (leg.CallDirection != prevDir)
                     {
                         _tracer.TraceDirectionDecision(
@@ -1922,7 +1894,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 if (dialedStr.Contains("*44") || dialedStr.Contains("#44"))
                 {
                     _logger.Debug($"Filtering feature code call: {dialedStr}, GidSequence={ (orderedLegs.Count > 0 ? orderedLegs[0].GidSequence : string.Empty) }");
-                    // Injection Point H: Trace feature code suppression
                     foreach (var fLeg in orderedLegs)
                     {
                         _tracer.TraceSuppressedLeg(
@@ -1996,7 +1967,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                         Extension = ext,
                         DialedNumber = ext,
                         DialedAni = external1,
-                        TransferFrom = transferFrom,
+                        TransferFrom = "", //incoming leg, no transfer from
                         TransferTo = "",
                         Duration = call.TotalDuration,
                         IsAnswered = call.IsAnswered,
@@ -2036,7 +2007,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                         GlobalCallId = t2tLeg.GlobalCallId,
                         ThreadId = t2tLeg.ThreadId,
                         GidSequence = t2tLeg.GidSequence,
-                        LegIndex = 1,
+                        LegIndex = 2,
                         CallDirection = CallDirection.T2TOut,
                         CallerExtension = ext,
                         CallingNumber = ext,
@@ -2116,33 +2087,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 EmitCall(call, result);
                 result.TotalCallsIdentified++;
             }
-        }
-
-        /// <summary>
-        /// Find an existing merged call group that this GID group belongs to.
-        /// Matches on: same external caller, OR same dialed number,
-        /// AND overlapping time window.
-        /// </summary>
-        /// <summary>
-        /// Determine if two groups of legs belong to the same logical call.
-        /// </summary>
-        private bool IsRelatedCall(List<ProcessedLeg> groupA, List<ProcessedLeg> groupB)
-        {
-            // Get identifiers from each group
-            var callersA = GetCallers(groupA);
-            var callersB = GetCallers(groupB);
-            var dialedA = GetDialedNumbers(groupA);
-            var dialedB = GetDialedNumbers(groupB);
-
-            // Must share at least one caller OR dialed number
-            bool sharedCaller = callersA.Overlaps(callersB);
-            bool sharedDialed = dialedA.Overlaps(dialedB);
-
-            if (!sharedCaller && !sharedDialed)
-                return false;
-
-            // Check time proximity
-            return AreWithinTimeWindow(groupA, groupB, CallLinkingWindowSeconds);
         }
 
         private HashSet<string> GetCallers(List<ProcessedLeg> legs)
@@ -2381,7 +2325,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
             {
                 var ingressIsPstn = !string.IsNullOrEmpty(leg.IngressEndpoint) && IsSipPstn(leg.IngressEndpoint);
                 var egressIsPstn = !string.IsNullOrEmpty(leg.EgressEndpoint) && IsSipPstn(leg.EgressEndpoint);
-                var prevDir = leg.CallDirection;
                 
                 // Aggregate direction based on endpoints (most external wins)
                 if (ingressIsPstn && egressIsPstn && leg.CallDirection != CallDirection.TrunkToTrunk)
@@ -2390,18 +2333,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                     leg.CallDirection = CallDirection.Outgoing;
                 else if (ingressIsPstn && leg.CallDirection == CallDirection.Internal)
                     leg.CallDirection = CallDirection.Incoming;
-                
-                // Injection Point I: Trace direction override in AssembleSingleCall
-                if (leg.CallDirection != prevDir)
-                {
-                    _tracer.TraceDirectionDecision(
-                        leg.ThreadId, leg.LegIndex, leg.CallDirection.ToString(),
-                        string.Format("SIP PSTN override in AssembleSingleCall: {0}->{1} (Ingress PSTN={2}, Egress PSTN={3})",
-                            prevDir, leg.CallDirection, ingressIsPstn, egressIsPstn),
-                        !ingressIsPstn, !egressIsPstn,
-                        leg.IngressEndpoint, leg.EgressEndpoint,
-                        leg.OrigPartyId, leg.TermPartyId);
-                }
             }
 
             ComputeTransferChain(orderedLegs);

@@ -14,7 +14,10 @@ namespace Pipeline.Components.OSVParser.Processing
 
         public ProcessingTracer(IProcessorLogger logger)
         {
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            if (logger == null)
+                throw new ArgumentNullException(nameof(logger));
+
+            _logger = logger;
         }
 
         public void TraceFieldOrigin(string threadId, int legIndex, string legField, string value,

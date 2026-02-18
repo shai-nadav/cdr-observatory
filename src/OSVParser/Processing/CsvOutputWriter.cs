@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -69,9 +69,6 @@ namespace Pipeline.Components.OSVParser.Processing
                 r.CallEventIndicator.ToString(),
                 Escape(FieldMappings.GetCallEventIndicatorText(r.CallEventIndicator)),
                         r.MediaType.ToString(),
-                // HG specific
-                Escape(r.HuntGroupNumber),
-                Escape(r.RoutedToExtension),
                 // Endpoints
                 Escape(r.IngressEndpoint),
                 Escape(r.EgressEndpoint),
@@ -219,9 +216,6 @@ namespace Pipeline.Components.OSVParser.Processing
     "CallEventIndicator (107)",
     "CallEventIndicatorText (107-derived)",
     "MediaType (104)",
-    // HG specific
-    "HuntGroupNumber (HG[6])",
-    "RoutedToExtension (HG[11])",
     // Endpoints
     "IngressEndpoint (126)",
     "EgressEndpoint (127)",

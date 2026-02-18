@@ -1,3 +1,4 @@
+using Pipeline.Components.OSVParser.Processing;
 using System.Collections.Generic;
 
 namespace Pipeline.Components.OSVParser
@@ -38,7 +39,8 @@ namespace Pipeline.Components.OSVParser
             string logName,
             ISettingsProvider settings,
             ISipEndpointsProvider sipEndpoints,
-            IPendingCallsRepository pendingCalls);
+            IPendingCallsRepository pendingCalls,
+            IProcessingTracer processingTracer);
         
         /// <summary>
         /// Process all .bf files in input directory.

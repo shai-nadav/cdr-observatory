@@ -29,7 +29,8 @@ namespace Pipeline.Components.OSVParser.Processing
         private ISettingsProvider _settings;
         private ISipEndpointsProvider _sipEndpoints;
         private IPendingCallsRepository _pendingCalls;
-        
+        private IProcessingTracer _processingTracer;
+
         // Engine and stats
         private CdrProcessorEngine _engine;
         private OSVParserStats _lastStats;
@@ -77,11 +78,13 @@ namespace Pipeline.Components.OSVParser.Processing
             string logName,
             ISettingsProvider settings,
             ISipEndpointsProvider sipEndpoints,
-            IPendingCallsRepository pendingCalls)
+            IPendingCallsRepository pendingCalls,
+            IProcessingTracer processingTracer = null)
         {
             if (_initialized)
                 throw new InvalidOperationException("Already initialized. Call CleanWorkDirectory() to reset.");
-            
+
+            _processingTracer = processingTracer;
             _instanceId = instanceId;
             _instanceName = instanceName ?? $"OSVParser-{instanceId}";
             if (inputPath == null) throw new ArgumentNullException(nameof(inputPath));
@@ -149,7 +152,8 @@ namespace Pipeline.Components.OSVParser.Processing
                     _logger,
                     effectiveSipEndpoints,
                     effectivePendingCalls,
-                    cache);
+                    cache,
+                    _processingTracer);
                 
                 var result = _engine.ProcessFolder(_inputPath, null, _abortHelper);
                 _preprocessedInputFile = Path.Combine(ProcessedDirectory, "legs_*.csv");
