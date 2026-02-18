@@ -1543,7 +1543,10 @@ async function processOnServer() {
       logLines = data.log.map(entry => {
         const ts = entry.timestamp || '';
         const level = entry.level || 'INFO';
-        const msg = entry.message || '';
+        let msg = entry.message || '';
+        // Strip temp directory paths for readability
+        msg = msg.replace(/\/tmp\/cdr-observatory-[a-f0-9]+\/(input|output|archive|decoded)\//g, '');
+        msg = msg.replace(/C:\\.*?\\cdr-observatory-[a-f0-9]+\\(input|output|archive|decoded)\\/gi, '');
         return `[${ts}] ${level}: ${msg}`;
       });
       parseTaggedLogLines(logLines);
