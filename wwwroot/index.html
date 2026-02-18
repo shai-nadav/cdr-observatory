@@ -613,6 +613,14 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
+// Clear highlights when clicking outside tables/log
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('table') && !e.target.closest('.log-container')) {
+    document.querySelectorAll('.highlight-row').forEach(el => el.classList.remove('highlight-row'));
+    document.querySelectorAll('.highlight-log').forEach(el => el.classList.remove('highlight-log'));
+  }
+});
+
 // =============================================================================
 // CSV PARSER
 // =============================================================================
