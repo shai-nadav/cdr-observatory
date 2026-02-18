@@ -111,10 +111,14 @@ app.MapPost("/api/process", async (HttpRequest request) =>
             FilePattern = "*.*",
         };
 
+        config.ArchiveFolder = Path.Combine(tempDir, "archive");
+        Directory.CreateDirectory(config.ArchiveFolder);
+
         // Run processing
         var cache = new InMemoryCacheStore();
         var logger = new LogCollector();
-        var engine = new CdrProcessorEngine(config, cache, logger);
+        var tracer = new ProcessingTracer(logger);
+        var engine = new CdrProcessorEngine(config, cache, logger, tracer);
         var result = engine.ProcessFolder();
 
         // Read decoded CDR output if available
