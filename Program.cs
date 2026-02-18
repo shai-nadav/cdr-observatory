@@ -46,6 +46,8 @@ var jsonOptions = new JsonSerializerOptions
 app.MapPost("/api/process", async (HttpRequest request) =>
 {
     string tempDir = null;
+    var serverStartTime = DateTime.UtcNow;
+    var stopwatch = System.Diagnostics.Stopwatch.StartNew();
     try
     {
         if (!request.HasFormContentType)
@@ -127,9 +129,37 @@ app.MapPost("/api/process", async (HttpRequest request) =>
         var result = engine.ProcessFolder();
 
         // Write session manifest
+        stopwatch.Stop();
+        var clientIp = request.Headers["X-Forwarded-For"].FirstOrDefault()
+            ?? request.Headers["X-Real-IP"].FirstOrDefault()
+            ?? request.HttpContext.Connection.RemoteIpAddress?.ToString()
+            ?? "unknown";
+        // Strip port if present
+        if (clientIp.Contains(':') && !clientIp.Contains('[')) 
+        {
+            var lastColon = clientIp.LastIndexOf(':');
+            if (lastColon > clientIp.LastIndexOf('.')) clientIp = clientIp.Substring(0, lastColon);
+        }
+
+        // Geo lookup (best effort, free API)
+        string country = null, city = null;
+        try
+        {
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            var geoJson = await http.GetStringAsync($"http://ip-api.com/json/{clientIp}?fields=country,city");
+            var geoDoc = JsonDocument.Parse(geoJson);
+            country = geoDoc.RootElement.TryGetProperty("country", out var c) ? c.GetString() : null;
+            city = geoDoc.RootElement.TryGetProperty("city", out var ci) ? ci.GetString() : null;
+        }
+        catch { }
+
         var manifest = new
         {
-            timestamp = DateTime.UtcNow,
+            timestamp = serverStartTime,
+            serverProcessingMs = stopwatch.ElapsedMilliseconds,
+            clientIp,
+            country,
+            city,
             sipFile = sipFile?.FileName,
             cdrFiles = cdrFiles.Select(f => f.FileName).ToList(),
             stats = new { result.TotalFilesProcessed, result.TotalRecordsProcessed, result.TotalCallsIdentified }
@@ -163,6 +193,10 @@ app.MapPost("/api/process", async (HttpRequest request) =>
             legs = legsData,
             decodedCdrs = decodedCdrs,
             log = logger.Entries,
+            serverProcessingMs = stopwatch.ElapsedMilliseconds,
+            clientIp,
+            country,
+            city,
             stats = new
             {
                 totalFilesProcessed = result.TotalFilesProcessed,

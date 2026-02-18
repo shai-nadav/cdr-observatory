@@ -1591,6 +1591,7 @@ async function processOnServer() {
 
 
 
+    const fetchStart = Date.now();
     const response = await fetch('/api/process', {
       method: 'POST',
       body: formData,
@@ -1658,7 +1659,11 @@ async function processOnServer() {
 
     // Show stats
     const s = data.stats || {};
-    status.textContent = `✅ Processed ${s.totalFilesProcessed || 0} files, ${s.totalRecordsProcessed || 0} records → ${s.totalCallsIdentified || 0} calls in ${s.processingTimeMs || 0}ms (${Math.round(s.recordsPerSecond || 0)} rec/sec)`;
+    const clientMs = Date.now() - fetchStart;
+    const serverMs = data.serverProcessingMs || s.processingTimeMs || 0;
+    const location = [data.city, data.country].filter(Boolean).join(', ');
+    const locationStr = location ? ` | 📍 ${location}` : '';
+    status.textContent = `✅ Processed ${s.totalFilesProcessed || 0} files, ${s.totalRecordsProcessed || 0} records → ${s.totalCallsIdentified || 0} calls | ⏱ Server: ${serverMs}ms, Round-trip: ${clientMs}ms (${Math.round(s.recordsPerSecond || 0)} rec/sec)${locationStr}`;
     status.className = 'process-status success';
 
     // Auto-switch to Legs tab
