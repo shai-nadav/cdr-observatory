@@ -77,6 +77,8 @@
   .upload-card .icon { font-size: 2rem; margin-bottom: 8px; }
   .upload-card .label { font-size: 0.9rem; color: var(--text-dim); }
   .upload-card .filename { font-size: 0.8rem; color: var(--green); margin-top: 6px; }
+  .upload-card .clear-btn { font-size: 0.75rem; color: var(--red); margin-top: 6px; cursor: pointer; opacity: 0.7; }
+  .upload-card .clear-btn:hover { opacity: 1; }
 
   .tabs {
     display: flex;
@@ -410,12 +412,14 @@
       <div class="icon">🔌</div>
       <div class="label">SIP Endpoints File (XML)</div>
       <div class="filename" id="server-sip-filename"></div>
+      <div class="clear-btn" id="clear-sip-btn" style="display:none" onclick="event.stopPropagation(); clearSipFile()">✕ Clear</div>
     </div>
     <div class="upload-card" id="drop-cdr-server" onclick="this.querySelector('input').click()">
       <input type="file" id="server-cdr-input" accept=".csv,.bf" multiple onchange="serverCdrChanged(this.files)">
       <div class="icon">📄</div>
       <div class="label">Raw CDR Files (.csv / .bf)</div>
       <div class="filename" id="server-cdr-filename"></div>
+      <div class="clear-btn" id="clear-cdr-btn" style="display:none" onclick="event.stopPropagation(); clearCdrFiles()">✕ Clear</div>
     </div>
     <button class="process-btn" id="process-btn" onclick="processOnServer()">🚀 Process CDR Files</button>
     <div class="process-status" id="process-status"></div>
@@ -1476,7 +1480,26 @@ let serverCdrFiles = [];
 function serverSipChanged(file) {
   serverSipFile = file;
   document.getElementById('server-sip-filename').textContent = file ? file.name : '';
-  if (file) document.getElementById('drop-sip-server').classList.add('loaded');
+  if (file) {
+    document.getElementById('drop-sip-server').classList.add('loaded');
+    document.getElementById('clear-sip-btn').style.display = 'block';
+  }
+}
+
+function clearSipFile() {
+  serverSipFile = null;
+  document.getElementById('server-sip-filename').textContent = '';
+  document.getElementById('server-sip-input').value = '';
+  document.getElementById('drop-sip-server').classList.remove('loaded');
+  document.getElementById('clear-sip-btn').style.display = 'none';
+}
+
+function clearCdrFiles() {
+  serverCdrFiles = [];
+  document.getElementById('server-cdr-filename').textContent = '';
+  document.getElementById('server-cdr-input').value = '';
+  document.getElementById('drop-cdr-server').classList.remove('loaded');
+  document.getElementById('clear-cdr-btn').style.display = 'none';
 }
 
 function serverCdrChanged(files, append) {
@@ -1487,7 +1510,10 @@ function serverCdrChanged(files, append) {
   }
   document.getElementById('server-cdr-filename').textContent = 
     serverCdrFiles.length + ' file(s): ' + serverCdrFiles.map(f => f.name).join(', ');
-  if (serverCdrFiles.length) document.getElementById('drop-cdr-server').classList.add('loaded');
+  if (serverCdrFiles.length) {
+    document.getElementById('drop-cdr-server').classList.add('loaded');
+    document.getElementById('clear-cdr-btn').style.display = 'block';
+  }
 }
 
 async function processOnServer() {
