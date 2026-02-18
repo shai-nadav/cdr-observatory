@@ -126,6 +126,16 @@ app.MapPost("/api/process", async (HttpRequest request) =>
         var engine = new CdrProcessorEngine(settings, logger, sipProvider, pendingRepo, cache, tracer);
         var result = engine.ProcessFolder();
 
+        // Write session manifest
+        var manifest = new
+        {
+            timestamp = DateTime.UtcNow,
+            sipFile = sipFile?.FileName,
+            cdrFiles = cdrFiles.Select(f => f.FileName).ToList(),
+            stats = new { result.TotalFilesProcessed, result.TotalRecordsProcessed, result.TotalCallsIdentified }
+        };
+        File.WriteAllText(Path.Combine(tempDir, "manifest.json"), JsonSerializer.Serialize(manifest, jsonOptions));
+
         // Read decoded CDR output if available
         var decodedCdrs = new List<Dictionary<string, string>>();
         var decodedDir = settings.DecodedFolder ?? Path.Combine(inputDir, "output", "cdrsDecoded");
@@ -192,7 +202,16 @@ app.MapGet("/api/sessions", () =>
     var dirs = Directory.GetDirectories(Path.GetTempPath(), "cdr-observatory-*")
         .Select(d => new DirectoryInfo(d))
         .OrderByDescending(d => d.CreationTimeUtc)
-        .Select(d => new { name = d.Name, created = d.CreationTimeUtc, sizeMb = Math.Round(GetDirSize(d) / 1024.0 / 1024.0, 1) })
+        .Select(d =>
+        {
+            object manifest = null;
+            var mPath = Path.Combine(d.FullName, "manifest.json");
+            if (File.Exists(mPath))
+            {
+                try { manifest = JsonSerializer.Deserialize<object>(File.ReadAllText(mPath)); } catch { }
+            }
+            return new { name = d.Name, created = d.CreationTimeUtc, sizeMb = Math.Round(GetDirSize(d) / 1024.0 / 1024.0, 1), manifest };
+        })
         .ToList();
     return Results.Json(dirs, jsonOptions);
 });
