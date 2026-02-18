@@ -128,7 +128,7 @@ app.MapPost("/api/process", async (HttpRequest request) =>
 
         // Read decoded CDR output if available
         var decodedCdrs = new List<Dictionary<string, string>>();
-        var decodedDir = Path.Combine(inputDir, "output", "cdrsDecoded");
+        var decodedDir = settings.DecodedFolder ?? Path.Combine(inputDir, "output", "cdrsDecoded");
         if (Directory.Exists(decodedDir))
         {
             foreach (var decodedFile in Directory.GetFiles(decodedDir, "*.csv"))
