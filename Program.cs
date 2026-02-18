@@ -104,7 +104,6 @@ app.MapPost("/api/process", async (HttpRequest request) =>
         {
             InputFolder = inputDir,
             OutputFolder = outputDir,
-            ArchiveFolder = Path.Combine(tempDir, "archive"),
             DecodedFolder = Path.Combine(tempDir, "decoded"),
             SipEndpointsFile = sipFilePath,
             WriteDecodedCdrs = true,
@@ -116,7 +115,6 @@ app.MapPost("/api/process", async (HttpRequest request) =>
             FilePattern = "*.*",
         };
 
-        Directory.CreateDirectory(settings.ArchiveFolder);
         Directory.CreateDirectory(settings.DecodedFolder);
 
         // Run processing
