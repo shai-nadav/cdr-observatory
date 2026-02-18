@@ -179,17 +179,62 @@ app.MapPost("/api/process", async (HttpRequest request) =>
     }
     finally
     {
-        // Cleanup temp files
-        if (tempDir != null && Directory.Exists(tempDir))
-        {
-            try { Directory.Delete(tempDir, recursive: true); }
-            catch { /* best effort */ }
-        }
+        // Keep temp files for later access; cleanup handled by retention policy
     }
 });
 
 // Health check
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok", timestamp = DateTime.UtcNow }));
+
+// List recent processing sessions
+app.MapGet("/api/sessions", () =>
+{
+    var dirs = Directory.GetDirectories(Path.GetTempPath(), "cdr-observatory-*")
+        .Select(d => new DirectoryInfo(d))
+        .OrderByDescending(d => d.CreationTimeUtc)
+        .Select(d => new { name = d.Name, created = d.CreationTimeUtc, sizeMb = Math.Round(GetDirSize(d) / 1024.0 / 1024.0, 1) })
+        .ToList();
+    return Results.Json(dirs, jsonOptions);
+});
+
+// Background cleanup: 5 day retention, 500MB max
+const int RetentionDays = 5;
+const long MaxTotalBytes = 500L * 1024 * 1024;
+
+var cleanupTimer = new System.Threading.Timer(_ =>
+{
+    try
+    {
+        var dirs = Directory.GetDirectories(Path.GetTempPath(), "cdr-observatory-*")
+            .Select(d => new DirectoryInfo(d))
+            .OrderByDescending(d => d.CreationTimeUtc)
+            .ToList();
+
+        // Delete dirs older than retention
+        foreach (var d in dirs.Where(d => d.CreationTimeUtc < DateTime.UtcNow.AddDays(-RetentionDays)))
+        {
+            try { d.Delete(true); } catch { }
+        }
+
+        // If still over max size, delete oldest first
+        dirs = dirs.Where(d => d.Exists).OrderBy(d => d.CreationTimeUtc).ToList();
+        long total = dirs.Sum(d => GetDirSize(d));
+        while (total > MaxTotalBytes && dirs.Count > 0)
+        {
+            var oldest = dirs[0];
+            total -= GetDirSize(oldest);
+            try { oldest.Delete(true); } catch { }
+            dirs.RemoveAt(0);
+        }
+    }
+    catch { }
+}, null, TimeSpan.Zero, TimeSpan.FromHours(1));
+
+static long GetDirSize(DirectoryInfo dir)
+{
+    try { return dir.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length); }
+    catch { return 0; }
+}
 
 app.Run();
 
