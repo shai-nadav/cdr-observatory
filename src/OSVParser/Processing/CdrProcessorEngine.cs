@@ -458,6 +458,23 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
 
             result.TotalRecordsProcessed++;
 
+            // Early feature code filtering: skip *44/#44 call forward activation/deactivation
+            // before any leg creation occurs
+            if (raw.RecordType == CdrRecordType.FullCdr && !string.IsNullOrEmpty(raw.DialedNumber))
+            {
+                var dialed = raw.DialedNumber;
+                if (dialed.Contains("*44") || dialed.Contains("#44"))
+                {
+                    var threadId = raw.ThreadIdSequence ?? raw.ThreadIdNode ?? raw.GlobalCallId;
+                    _logger.Debug($"Early filtering feature code call: {dialed}, GidSequence={raw.GidSequence}");
+                    _tracer.TraceSuppressedLeg(
+                        threadId,
+                        string.Format("Record Dialed={0} GidSeq={1}", dialed, raw.GidSequence ?? ""),
+                        string.Format("Feature code filtering (early): DialedNumber contains {0}", dialed.Contains("*44") ? "*44" : "#44"));
+                    return;
+                }
+            }
+
             switch (raw.RecordType)
             {
                 case CdrRecordType.FullCdr:
@@ -1889,20 +1906,8 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 // Apply shared leg post-processing (direction, DialedAni, Extension/DestExt)
                 ApplyLegPostProcessing(call, orderedLegs);
 
-                // === Feature code filtering: skip *44/#44 call forward activation/deactivation ===
-                var dialedStr = call.DialedNumber ?? "";
-                if (dialedStr.Contains("*44") || dialedStr.Contains("#44"))
-                {
-                    _logger.Debug($"Filtering feature code call: {dialedStr}, GidSequence={ (orderedLegs.Count > 0 ? orderedLegs[0].GidSequence : string.Empty) }");
-                    foreach (var fLeg in orderedLegs)
-                    {
-                        _tracer.TraceSuppressedLeg(
-                            fLeg.ThreadId,
-                            string.Format("Leg#{0} Dialed={1} GidSeq={2}", fLeg.LegIndex, dialedStr, fLeg.GidSequence ?? ""),
-                            string.Format("Feature code filtering: DialedNumber contains {0}", dialedStr.Contains("*44") ? "*44" : "#44"));
-                    }
-                    continue; // Skip this call entirely
-                }
+                // NOTE: Feature code filtering (*44/#44) is now handled early in ProcessSingleRecord()
+                // before leg creation. Any feature code calls that somehow reach here are unexpected.
 
                 // === T2T splitting: split TrunkToTrunk calls into T2T-In + T2T-Out ===
                 // Only split when there's an internal extension involved (ForwardingParty).
