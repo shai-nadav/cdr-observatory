@@ -56,7 +56,9 @@ app.MapPost("/api/process", async (HttpRequest request) =>
         var form = await request.ReadFormAsync();
 
         // Create temp directories
-        tempDir = Path.Combine(Path.GetTempPath(), "cdr-observatory-" + Guid.NewGuid().ToString("N"));
+        var sessionsRoot = Path.Combine(AppContext.BaseDirectory, "sessions");
+        if (!Directory.Exists(sessionsRoot)) Directory.CreateDirectory(sessionsRoot);
+        tempDir = Path.Combine(sessionsRoot, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8));
         var inputDir = Path.Combine(tempDir, "input");
         var outputDir = Path.Combine(tempDir, "output");
         Directory.CreateDirectory(inputDir);
@@ -233,7 +235,9 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "ok", timestamp = Date
 // List recent processing sessions
 app.MapGet("/api/sessions", () =>
 {
-    var dirs = Directory.GetDirectories(Path.GetTempPath(), "cdr-observatory-*")
+    var sessRoot = Path.Combine(AppContext.BaseDirectory, "sessions");
+    if (!Directory.Exists(sessRoot)) return Results.Json(new List<object>(), jsonOptions);
+    var dirs = Directory.GetDirectories(sessRoot)
         .Select(d => new DirectoryInfo(d))
         .OrderByDescending(d => d.CreationTimeUtc)
         .Select(d =>
@@ -250,7 +254,7 @@ app.MapGet("/api/sessions", () =>
     return Results.Json(dirs, jsonOptions);
 });
 
-// Background cleanup: 5 day retention, 500MB max
+// Background cleanup: keep manifests forever, purge large output dirs after 5 days, 500MB max total
 const int RetentionDays = 5;
 const long MaxTotalBytes = 500L * 1024 * 1024;
 
@@ -258,18 +262,25 @@ var cleanupTimer = new System.Threading.Timer(_ =>
 {
     try
     {
-        var dirs = Directory.GetDirectories(Path.GetTempPath(), "cdr-observatory-*")
+        var sessRoot = Path.Combine(AppContext.BaseDirectory, "sessions");
+        if (!Directory.Exists(sessRoot)) return;
+        var dirs = Directory.GetDirectories(sessRoot)
             .Select(d => new DirectoryInfo(d))
             .OrderByDescending(d => d.CreationTimeUtc)
             .ToList();
 
-        // Delete dirs older than retention
+        // For old sessions: delete heavy subdirs (output, decoded, archive, input) but keep manifest.json
         foreach (var d in dirs.Where(d => d.CreationTimeUtc < DateTime.UtcNow.AddDays(-RetentionDays)))
         {
-            try { d.Delete(true); } catch { }
+            foreach (var sub in new[] { "input", "output", "decoded", "archive" })
+            {
+                var subDir = Path.Combine(d.FullName, sub);
+                if (Directory.Exists(subDir))
+                    try { Directory.Delete(subDir, true); } catch { }
+            }
         }
 
-        // If still over max size, delete oldest first
+        // If still over max size, fully delete oldest sessions
         dirs = dirs.Where(d => d.Exists).OrderBy(d => d.CreationTimeUtc).ToList();
         long total = dirs.Sum(d => GetDirSize(d));
         while (total > MaxTotalBytes && dirs.Count > 0)
