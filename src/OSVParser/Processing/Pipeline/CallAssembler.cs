@@ -12,6 +12,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
         private readonly Pipeline.TransferChainResolver _transferChainResolver;
         private readonly Pipeline.LegSuppressor _legSuppressor;
         private readonly Pipeline.CallFinalizer _callFinalizer;
+        private readonly HashSet<string> _outputtedThreadIds;
         private readonly Action<ProcessedCall, ProcessingResult> _emitCall;
 
         public CallAssembler(
@@ -20,6 +21,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             Pipeline.TransferChainResolver transferChainResolver,
             Pipeline.LegSuppressor legSuppressor,
             Pipeline.CallFinalizer callFinalizer,
+            HashSet<string> outputtedThreadIds,
             Action<ProcessedCall, ProcessingResult> emitCall)
         {
             _context = context;
@@ -27,6 +29,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             _transferChainResolver = transferChainResolver;
             _legSuppressor = legSuppressor;
             _callFinalizer = callFinalizer;
+            _outputtedThreadIds = outputtedThreadIds;
             _emitCall = emitCall;
         }
 
@@ -37,6 +40,8 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             var groups = new List<List<ProcessedLeg>>();
             foreach (var key in _context.Cache.GetAllGids())
             {
+                // Skip calls already output via streaming
+                if (_outputtedThreadIds.Contains(key)) continue;
 
                 var allLegs = _context.Cache.GetPendingLegs(key);
                 var hgOnlyLegs = allLegs.Where(l => l.IsHgOnly).ToList();

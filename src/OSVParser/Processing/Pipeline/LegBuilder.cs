@@ -10,14 +10,17 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
         private readonly PipelineContext _context;
         private readonly Func<string, string, int?> _calculateRingTime;
         private readonly Func<string, string> _getGidHex;
+        private readonly Action<string, ProcessingResult> _checkStreamingOutput;
         public LegBuilder(
             PipelineContext context,
             Func<string, string, int?> calculateRingTime,
-            Func<string, string> getGidHex)
+            Func<string, string> getGidHex,
+            Action<string, ProcessingResult> checkStreamingOutput)
         {
             _context = context;
             _calculateRingTime = calculateRingTime;
             _getGidHex = getGidHex;
+            _checkStreamingOutput = checkStreamingOutput;
         }
 
         public void ProcessFullCdr(RawCdrRecord raw, ProcessingResult result)
@@ -215,6 +218,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             _context.Cache.StorePendingLeg(threadId, leg);
 
             // Streaming: check for early output and enforce cache limit
+            _checkStreamingOutput(threadId, result);
 
             // Candidate extension detection
         }
