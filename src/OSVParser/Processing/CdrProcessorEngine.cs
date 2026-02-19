@@ -61,6 +61,7 @@ namespace Pipeline.Components.OSVParser.Processing
         private DecodedCdrWriter _decodedCdrWriter;
         private readonly Pipeline.PipelineContext _pipelineContext;
         private readonly Pipeline.LegMerger _legMerger;
+        private readonly Pipeline.TransferChainResolver _transferChainResolver;
 /// <summary>
         /// Create engine with interface-based dependencies (for TEM-CA or testing).
         /// </summary>
@@ -115,6 +116,7 @@ namespace Pipeline.Components.OSVParser.Processing
             _config = null; // Will use _settings instead
             _pipelineContext = BuildPipelineContext();
             _legMerger = new Pipeline.LegMerger(_pipelineContext);
+            _transferChainResolver = new Pipeline.TransferChainResolver(_pipelineContext);
 
             try
             {
@@ -165,6 +167,7 @@ namespace Pipeline.Components.OSVParser.Processing
             _pendingRepo = null;
             _pipelineContext = BuildPipelineContext();
             _legMerger = new Pipeline.LegMerger(_pipelineContext);
+            _transferChainResolver = new Pipeline.TransferChainResolver(_pipelineContext);
         }
 
         private PipelineContext BuildPipelineContext()
@@ -987,193 +990,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
         }
 
         /// <summary>
-        /// True when CalledParty is a routing intermediary (HG, queue, etc.) rather
-        /// than the call endpoint.
-        ///
-        /// General field conditions (no hardcoded numbers):
-        ///   - CalledParty is non-empty
-        ///   - CalledParty differs from CallingNumber (it's not the caller looping back)
-        ///   - CalledParty differs from DestinationExt (it's not the final endpoint)
-        ///   - DestinationExt is non-empty (if DestExt is empty, CalledParty may BE the
-        ///     destination  e.g. CMS agent legs where the PBX doesn't populate DestExt)
-        ///   - CalledParty is not the VM code (VM is a service code, not a routing entity)
-        /// </summary>
-        private bool IsRoutingIntermediary(ProcessedLeg leg)
-        {
-            return !string.IsNullOrEmpty(leg.CalledParty)
-                && !string.IsNullOrEmpty(leg.DestinationExt)
-                && leg.CalledParty != leg.CallingNumber
-                && leg.CalledParty != leg.DestinationExt
-                && !IsVmLeg(leg);
-        }
-
-        /// <summary>
-        /// Compute Transfer From on a single leg (without inheritance).
-        /// All rules are field-condition based  no hardcoded numbers.
-        ///
-        /// Priority order matters:
-        ///   1. CalledParty is a routing intermediary  CalledParty
-        ///      (HG/queue number that routed the call; overrides ForwardingParty
-        ///      because the HG is more specific than a pilot/redirect source)
-        ///   2. ForwardingParty is set  ForwardingParty
-        ///      (the extension that forwarded/redirected the call)
-        ///   3. CallingNumber differs from original caller  CallingNumber
-        ///      (a routing agent like CMS placed the call on behalf of the caller)
-        ///   4. CalledParty differs from DestinationExt (DestExt present, not VM)
-        ///       CalledParty (catch-all for intermediate routing not caught above)
-        /// </summary>
-        private string ComputeLegTransferFrom(ProcessedLeg leg, string origCaller)
-        {
-            // Rule 1: CalledParty is a routing intermediary
-            // (differs from CallingNumber AND DestinationExt, DestExt non-empty, not VM)
-            if (IsRoutingIntermediary(leg))
-                return leg.CalledParty;
-
-            // Rule 2: Has forwarding party
-            // Skip for unanswered VM legs  ForwardingParty is the extension that
-            // forwarded TO VM (= the destination itself), not who routed here.
-            if (!string.IsNullOrEmpty(leg.ForwardingParty)
-                && !(IsVmLeg(leg) && !leg.IsAnswered && leg.Duration == 0))
-                return leg.ForwardingParty;
-
-            // Rule 3: CallingNumber differs from original caller (CMS/routing agent)
-            if (!string.IsNullOrEmpty(leg.CallingNumber) &&
-                !string.IsNullOrEmpty(origCaller) &&
-                leg.CallingNumber != origCaller)
-                return leg.CallingNumber;
-
-            // Rule 4: CalledParty differs from DestinationExt and not VM
-            // (weaker version of Rule 1  CalledParty may equal CallingNumber)
-            if (!string.IsNullOrEmpty(leg.CalledParty) &&
-                !string.IsNullOrEmpty(leg.DestinationExt) &&
-                leg.CalledParty != leg.DestinationExt &&
-                !IsVmLeg(leg))
-                return leg.CalledParty;
-
-            return null;
-        }
-
-        /// <summary>
-        /// Compute Transfer From / Transfer To for all legs in a call.
-        ///
-        /// GENERAL RULES (field-condition based, no hardcoded numbers):
-        ///
-        /// Transfer From = "who routed/transferred this call to this leg"
-        ///   - See ComputeLegTransferFrom for the 4 priority rules
-        ///   - No match  inherit previous leg's TransferFrom
-        ///
-        /// Transfer To = "where the call goes next"
-        ///   - VM leg (CalledParty = configured VM code)  CalledParty
-        ///   - Has next leg  next leg's Transfer From (look-ahead), or next leg's
-        ///     DestinationExt, or next leg's CalledParty
-        ///   - Dedup: if Transfer To == Transfer From, use next leg's endpoint instead
-        ///   - Last leg  null
-        /// </summary>
-
-        private void ComputeTransferChain(List<ProcessedLeg> orderedLegs)
-        {
-            if (orderedLegs.Count == 0) return;
-
-            var origCaller = orderedLegs[0].CallingNumber ?? "";
-            string prevTransferFrom = null;
-
-            for (int i = 0; i < orderedLegs.Count; i++)
-            {
-                var leg = orderedLegs[i];
-                var nextLeg = (i + 1 < orderedLegs.Count) ? orderedLegs[i + 1] : null;
-
-                // === Transfer From ===
-                var xferFrom = ComputeLegTransferFrom(leg, origCaller);
-
-                // Inherit from previous leg if no direct match
-                if (string.IsNullOrEmpty(xferFrom) && prevTransferFrom != null)
-                {
-                    xferFrom = prevTransferFrom;
-                }
-
-                // === Transfer To ===
-                // Transfer To = where the call goes NEXT.
-                // Last leg: null (nowhere to go).
-                // VM leg: null (VM is the final stop  the call doesn't go anywhere after).
-                // Next leg is VM: Transfer To = VM code (the call is heading to voicemail).
-                // Otherwise: look ahead to next leg's routing entity or endpoint.
-                string xferTo = null;
-
-                if (IsVmLeg(leg) && leg.IsAnswered)
-                {
-                    // Answered VM leg is the final destination  Transfer To is null
-                    xferTo = null;
-                }
-                else if (IsVmLeg(leg) && !leg.IsAnswered && nextLeg != null && IsVmLeg(nextLeg))
-                {
-                    // Unanswered VM leg (forwarding extension that sent to VM)
-                    // Transfer To = VM code (the call is heading to voicemail next)
-                    xferTo = nextLeg.CalledParty;
-                }
-                else if (nextLeg != null)
-                {
-                    if (IsVmLeg(nextLeg))
-                    {
-                        // Next leg is VM  Transfer To = VM code
-                        xferTo = nextLeg.CalledParty;
-                    }
-                    else
-                    {
-                        // Look ahead: reuse the same rules to compute next leg's Transfer From
-                        var nextXferFrom = ComputeLegTransferFrom(nextLeg, origCaller);
-
-                        // Transfer To = next leg's routing entity, or its endpoint
-                        xferTo = !string.IsNullOrEmpty(nextXferFrom) ? nextXferFrom
-                               : !string.IsNullOrEmpty(nextLeg.DestinationExt) ? nextLeg.DestinationExt
-                               : nextLeg.CalledParty;
-
-                        // Dedup: if Transfer To == Transfer From, use next leg's endpoint instead
-                        if (xferTo == xferFrom)
-                        {
-                            xferTo = !string.IsNullOrEmpty(nextLeg.DestinationExt) ? nextLeg.DestinationExt
-                                   : nextLeg.CalledParty;
-                        }
-
-                        // Self-ref: if Transfer To == current leg's DestinationExt,
-                        // it means "call goes back to itself"  use next leg's endpoint instead
-                        if (!string.IsNullOrEmpty(leg.DestinationExt) && xferTo == leg.DestinationExt)
-                        {
-                            xferTo = !string.IsNullOrEmpty(nextLeg.DestinationExt) ? nextLeg.DestinationExt
-                                   : nextLeg.CalledParty;
-                        }
-                    }
-                }
-
-                leg.TransferFrom = xferFrom;
-                leg.TransferTo = xferTo;
-                prevTransferFrom = xferFrom;
-
-                // Determine which rule produced TransferFrom
-                string fromRule = "None";
-                if (!string.IsNullOrEmpty(xferFrom))
-                {
-                    if (IsRoutingIntermediary(leg)) fromRule = "Rule1: CalledParty is routing intermediary";
-                    else if (!string.IsNullOrEmpty(leg.ForwardingParty) && xferFrom == leg.ForwardingParty) fromRule = "Rule2: ForwardingParty";
-                    else if (!string.IsNullOrEmpty(leg.CallingNumber) && xferFrom == leg.CallingNumber) fromRule = "Rule3: CallingNumber differs from origCaller";
-                    else if (!string.IsNullOrEmpty(leg.CalledParty) && xferFrom == leg.CalledParty) fromRule = "Rule4: CalledParty differs from DestExt";
-                    else fromRule = "Inherited from previous leg";
-                }
-                
-                // Determine which rule produced TransferTo
-                string toRule = "None";
-                if (xferTo != null)
-                {
-                    if (IsVmLeg(leg)) toRule = "VM leg";
-                    else if (nextLeg != null && IsVmLeg(nextLeg)) toRule = "Next leg is VM";
-                    else if (nextLeg != null) toRule = "Look-ahead to next leg";
-                }
-                else if (nextLeg == null) toRule = "Last leg: null";
-                
-                _tracer.TraceTransferChain(leg.ThreadId ?? "", leg.LegIndex, xferFrom, fromRule, xferTo, toRule);
-            }
-        }
-
-        /// <summary>
         /// Suppress routing-only legs from the output.
         /// Routing numbers (CMS, pilot, etc.) that act as pure pass-throughs
         /// should not appear as call records. Info is preserved in Transfer From/To.
@@ -1594,7 +1410,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 }
 
                 // Compute Transfer From / Transfer To for each leg
-                ComputeTransferChain(orderedLegs);
+                _transferChainResolver.ComputeTransferChain(orderedLegs);
 
                 //  Capture pre-suppression info for call-level fields 
                 // OriginalDialedDigits: from the first leg with a DialedNumber
@@ -2258,7 +2074,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                     leg.CallDirection = CallDirection.Incoming;
             }
 
-            ComputeTransferChain(orderedLegs);
+            _transferChainResolver.ComputeTransferChain(orderedLegs);
 
             var preSuppressionFirstDialed = orderedLegs
                 .Select(l => l.DialedNumber)
@@ -2382,35 +2198,4 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
