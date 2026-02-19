@@ -15,9 +15,6 @@ namespace CdrObservatory
         public string DecodedFolder { get; set; }
         public string OrphanFolder { get; set; }
         public string SipEndpointsFile { get; set; }
-        public string VoicemailNumber { get; set; }
-        public IList<string> RoutingNumbers { get; set; } = new List<string>();
-        public IList<string> HuntGroupNumbers { get; set; } = new List<string>();
         public string InstanceId { get; set; } = "observatory";
         public string FilePattern { get; set; } = "*.*";
         public int IncompleteRetentionHours { get; set; } = 0;

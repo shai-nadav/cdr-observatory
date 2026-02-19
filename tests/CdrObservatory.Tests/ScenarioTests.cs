@@ -24,9 +24,6 @@ namespace CdrObservatory.Tests
         string ISettingsProvider.DecodedFolder => Path.Combine(_rootTestOutputPath, "DecodedFolder");
         string ISettingsProvider.OrphanFolder => Path.Combine(_rootTestOutputPath, "OrphanFolder");
         string ISettingsProvider.SipEndpointsFile => null;
-        string ISettingsProvider.VoicemailNumber => "";
-        IList<string> ISettingsProvider.RoutingNumbers => new List<string>();
-        IList<string> ISettingsProvider.HuntGroupNumbers => new List<string>();
         string ISettingsProvider.InstanceId => "1";
         string ISettingsProvider.FilePattern => "*.*";
         int ISettingsProvider.IncompleteRetentionHours => 24;

@@ -94,9 +94,6 @@ app.MapPost("/api/process", async (HttpRequest request) =>
         }
 
         // Parse optional form fields
-        var routingNumbers = ParseFormList(form, "routingNumbers");
-        var huntGroupNumbers = ParseFormList(form, "huntGroupNumbers");
-        var voicemailNumber = form.ContainsKey("voicemailNumber") ? form["voicemailNumber"].ToString().Trim() : null;
 
         // Build settings
         var settings = new ObservatorySettings
@@ -107,9 +104,6 @@ app.MapPost("/api/process", async (HttpRequest request) =>
             SipEndpointsFile = sipFilePath,
             WriteDecodedCdrs = true,
             DeleteInputFiles = false,
-            RoutingNumbers = routingNumbers,
-            HuntGroupNumbers = huntGroupNumbers,
-            VoicemailNumber = string.IsNullOrWhiteSpace(voicemailNumber) ? null : voicemailNumber,
             FilePattern = "*.*",
         };
 
@@ -293,21 +287,6 @@ static long GetDirSize(DirectoryInfo dir)
 app.Run();
 
 // Helper functions
-static List<string> ParseFormList(IFormCollection form, string key)
-{
-    if (!form.ContainsKey(key))
-        return new List<string>();
-
-    var value = form[key].ToString().Trim();
-    if (string.IsNullOrEmpty(value))
-        return new List<string>();
-
-    return value.Split(new[] { ',', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
-        .Select(s => s.Trim())
-        .Where(s => !string.IsNullOrEmpty(s))
-        .ToList();
-}
-
 static List<Dictionary<string, string>> ReadCsvAsDicts(string csvPath)
 {
     var results = new List<Dictionary<string, string>>();

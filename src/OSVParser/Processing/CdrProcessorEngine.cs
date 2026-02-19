@@ -95,8 +95,8 @@ namespace Pipeline.Components.OSVParser.Processing
             _directionResolver = new DirectionResolver(_sipResolver, _cache, IsInternalNumber, GetVoicemailNumber, _logger, _tracer);
 
             _parser = new CdrCsvParser();
-            _routingNumbers = new HashSet<string>(settings.RoutingNumbers ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
-            _huntGroupNumbers = new HashSet<string>(settings.HuntGroupNumbers ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+            _routingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            _huntGroupNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _detectedRoutingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _gidHexToThreadId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             _gidHexToFullGid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -167,7 +167,7 @@ namespace Pipeline.Components.OSVParser.Processing
         private bool WriteDecodedCdrs => _settings.WriteDecodedCdrs;
         
         private bool DeleteInputFiles => _settings.DeleteInputFiles;
-        private string VoicemailNumber => _settings.VoicemailNumber;
+        private string VoicemailNumber => null;
         private int MaxCachedLegs => 0;
 
         private static string BuildSettingsProviderSnapshot(ISettingsProvider settings)
@@ -175,7 +175,7 @@ namespace Pipeline.Components.OSVParser.Processing
             if (settings == null) return "null";
 
             return string.Format(
-                "InstanceId={0}, InputFolder={1}, OutputFolder={2}, ArchiveFolder={3}, WorkFolder={4}, DecodedFolder={5}, OrphanFolder={6}, SipEndpointsFile={7}, FilePattern={8}, IncompleteRetentionHours={9}, MaxPendingQueueSize={10}, WriteDecodedCdrs={11}, DeleteInputFiles={12}, VoicemailNumber={13}, RoutingNumbers={14}, HuntGroupNumbers={15}",
+                "InstanceId={0}, InputFolder={1}, OutputFolder={2}, ArchiveFolder={3}, WorkFolder={4}, DecodedFolder={5}, OrphanFolder={6}, SipEndpointsFile={7}, FilePattern={8}, IncompleteRetentionHours={9}, MaxPendingQueueSize={10}, WriteDecodedCdrs={11}, DeleteInputFiles={12}",
                 settings.InstanceId ?? string.Empty,
                 settings.InputFolder ?? string.Empty,
                 settings.OutputFolder ?? string.Empty,
@@ -188,10 +188,7 @@ namespace Pipeline.Components.OSVParser.Processing
                 settings.IncompleteRetentionHours,
                 settings.MaxPendingQueueSize,
                 settings.WriteDecodedCdrs,
-                settings.DeleteInputFiles,
-                settings.VoicemailNumber ?? string.Empty,
-                JoinValues(settings.RoutingNumbers),
-                JoinValues(settings.HuntGroupNumbers));
+                settings.DeleteInputFiles);
         }
 
         private static string BuildSipEndpointsProviderSnapshot(ISipEndpointsProvider sipProvider)

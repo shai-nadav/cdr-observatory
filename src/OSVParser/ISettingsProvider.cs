@@ -39,13 +39,10 @@ namespace Pipeline.Components.OSVParser
         /// <summary>Extension ranges defining internal numbers</summary>
         
         /// <summary>Voicemail pilot number</summary>
-        string VoicemailNumber { get; }
         
         /// <summary>Routing-only numbers (CMS, pilots) - suppressed when 0 duration</summary>
-        IList<string> RoutingNumbers { get; }
         
         /// <summary>Hunt group numbers</summary>
-        IList<string> HuntGroupNumbers { get; }
 
         // -------------------------------------------------------------------
         // Processing Settings

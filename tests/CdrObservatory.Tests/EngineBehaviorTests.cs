@@ -42,9 +42,6 @@ namespace CdrObservatory.Tests
         // Configurable settings
         public bool SettingsWriteDecodedCdrs { get; set; } = true;
         public bool SettingsDeleteInputFiles { get; set; } = false;
-        public string SettingsVoicemailNumber { get; set; } = "";
-        public IList<string> SettingsRoutingNumbers { get; set; } = new List<string>();
-        public IList<string> SettingsHuntGroupNumbers { get; set; } = new List<string>();
 
         // Configurable SIP map
         public Dictionary<string, string> SipMap { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -67,9 +64,6 @@ namespace CdrObservatory.Tests
         string ISettingsProvider.DecodedFolder => DecodedDir;
         string ISettingsProvider.OrphanFolder => OrphanDir;
         string ISettingsProvider.SipEndpointsFile => null;
-        string ISettingsProvider.VoicemailNumber => SettingsVoicemailNumber;
-        IList<string> ISettingsProvider.RoutingNumbers => SettingsRoutingNumbers;
-        IList<string> ISettingsProvider.HuntGroupNumbers => SettingsHuntGroupNumbers;
         string ISettingsProvider.InstanceId => "1";
         string ISettingsProvider.FilePattern => "*.*";
         int ISettingsProvider.IncompleteRetentionHours => 24;
@@ -619,7 +613,6 @@ namespace CdrObservatory.Tests
         public void RoutingOnlyLeg_IsSuppressed()
         {
             using var h = new TestHarness();
-            h.SettingsRoutingNumbers = new List<string> { "34949910010" };
             h.CopyTestFile("osvpro2v2-20260127T103231+0100000888.BF");
 
             var (result, logger, _) = h.Run();
