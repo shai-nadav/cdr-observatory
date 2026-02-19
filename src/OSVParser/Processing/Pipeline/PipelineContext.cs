@@ -29,10 +29,8 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
         public Dictionary<string, string> GidHexToFullGid { get; }
 
         // Extension tracking
-        public Dictionary<string, CandidateExtension> Candidates { get; }
         public HashSet<string> SeenAsCallers { get; }
         public HashSet<string> SeenAsCallees { get; }
-        public HashSet<string> DiscoveredExtensions { get; }
         public HashSet<string> UnknownSipEndpoints { get; }
 
         // Delegates to engine helper methods (avoids duplicating logic)
@@ -62,10 +60,8 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             HashSet<string> detectedRoutingNumbers,
             Dictionary<string, string> gidHexToThreadId,
             Dictionary<string, string> gidHexToFullGid,
-            Dictionary<string, CandidateExtension> candidates,
             HashSet<string> seenAsCallers,
             HashSet<string> seenAsCallees,
-            HashSet<string> discoveredExtensions,
             HashSet<string> unknownSipEndpoints,
             Func<string, bool> isInternalNumber,
             Func<string> getVoicemailNumber,
@@ -90,10 +86,8 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             DetectedRoutingNumbers = detectedRoutingNumbers;
             GidHexToThreadId = gidHexToThreadId;
             GidHexToFullGid = gidHexToFullGid;
-            Candidates = candidates;
             SeenAsCallers = seenAsCallers;
             SeenAsCallees = seenAsCallees;
-            DiscoveredExtensions = discoveredExtensions;
             UnknownSipEndpoints = unknownSipEndpoints;
             IsInternalNumber = isInternalNumber;
             GetVoicemailNumber = getVoicemailNumber;

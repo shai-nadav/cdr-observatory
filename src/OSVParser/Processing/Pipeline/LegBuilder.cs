@@ -11,20 +11,16 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
         private readonly Func<string, string, int?> _calculateRingTime;
         private readonly Func<string, string> _getGidHex;
         private readonly Action<string, ProcessingResult> _checkStreamingOutput;
-        private readonly Action<string, string, RawCdrRecord> _detectCandidateExtension;
-
         public LegBuilder(
             PipelineContext context,
             Func<string, string, int?> calculateRingTime,
             Func<string, string> getGidHex,
-            Action<string, ProcessingResult> checkStreamingOutput,
-            Action<string, string, RawCdrRecord> detectCandidateExtension)
+            Action<string, ProcessingResult> checkStreamingOutput)
         {
             _context = context;
             _calculateRingTime = calculateRingTime;
             _getGidHex = getGidHex;
             _checkStreamingOutput = checkStreamingOutput;
-            _detectCandidateExtension = detectCandidateExtension;
         }
 
         public void ProcessFullCdr(RawCdrRecord raw, ProcessingResult result)
@@ -225,9 +221,6 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             _checkStreamingOutput(threadId, result);
 
             // Candidate extension detection
-            _detectCandidateExtension(raw.CallingNumber, "CallingNumber", raw);
-            _detectCandidateExtension(raw.DestinationExt, "DestinationExt", raw);
-            _detectCandidateExtension(raw.DialedNumber, "DialedNumber", raw);
         }
 
         public void ProcessHuntGroup(RawCdrRecord raw, ProcessingResult result)

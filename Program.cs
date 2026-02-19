@@ -206,12 +206,6 @@ app.MapPost("/api/process", async (HttpRequest request) =>
                 recordsPerSecond = result.RecordsPerSecond,
                 errors = result.Errors,
                 warnings = result.Warnings,
-                candidateExtensions = result.CandidateExtensions.Select(c => new
-                {
-                    number = c.Number,
-                    occurrences = c.Occurrences,
-                    reasons = c.Reasons,
-                }),
             },
         };
 

@@ -32,7 +32,6 @@ namespace Pipeline.Components.OSVParser.Processing
         private readonly IProcessingTracer _tracer;
         private readonly ICacheStore _cache;
         private readonly CdrCsvParser _parser;
-        private readonly Dictionary<string, CandidateExtension> _candidates;
 
         private readonly HashSet<string> _routingNumbers;
         private readonly HashSet<string> _huntGroupNumbers;
@@ -48,7 +47,6 @@ namespace Pipeline.Components.OSVParser.Processing
         // Extension discovery: track numbers seen as caller vs callee
         private readonly HashSet<string> _seenAsCallers;
         private readonly HashSet<string> _seenAsCallees;
-        private readonly HashSet<string> _discoveredExtensions;
 
         // Track which ThreadIds have been output via eviction (to avoid double output)
         private readonly HashSet<string> _outputtedThreadIds;
@@ -99,7 +97,6 @@ namespace Pipeline.Components.OSVParser.Processing
             _directionResolver = new DirectionResolver(_extensionRange, _sipResolver, _cache, IsInternalNumber, GetVoicemailNumber, _logger, _tracer);
 
             _parser = new CdrCsvParser();
-            _candidates = new Dictionary<string, CandidateExtension>(StringComparer.OrdinalIgnoreCase);
             _routingNumbers = new HashSet<string>(settings.RoutingNumbers ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
             _huntGroupNumbers = new HashSet<string>(settings.HuntGroupNumbers ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
             _detectedRoutingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -107,7 +104,6 @@ namespace Pipeline.Components.OSVParser.Processing
             _gidHexToFullGid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             _seenAsCallers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _seenAsCallees = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _discoveredExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _outputtedThreadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         
             _pipelineContext = BuildPipelineContext();
@@ -116,7 +112,7 @@ namespace Pipeline.Components.OSVParser.Processing
             _legSuppressor = new Pipeline.LegSuppressor(_pipelineContext);
             _callFinalizer = new Pipeline.CallFinalizer(_pipelineContext);
             _callAssembler = new Pipeline.CallAssembler(_pipelineContext, _legMerger, _transferChainResolver, _legSuppressor, _callFinalizer, _outputtedThreadIds, EmitCall);
-            _legBuilder = new Pipeline.LegBuilder(_pipelineContext, CalculateRingTime, GetGidHex, CheckStreamingOutput, DetectCandidateExtension);
+            _legBuilder = new Pipeline.LegBuilder(_pipelineContext, CalculateRingTime, GetGidHex, CheckStreamingOutput);
 
             try
             {
@@ -149,10 +145,8 @@ namespace Pipeline.Components.OSVParser.Processing
                 _detectedRoutingNumbers,
                 _gidHexToThreadId,
                 _gidHexToFullGid,
-                _candidates,
                 _seenAsCallers,
                 _seenAsCallees,
-                _discoveredExtensions,
                 _unknownSipEndpoints,
                 IsInternalNumber,
                 GetVoicemailNumber,
@@ -177,7 +171,6 @@ namespace Pipeline.Components.OSVParser.Processing
         
         private bool DeleteInputFiles => _settings.DeleteInputFiles;
         private string VoicemailNumber => _settings.VoicemailNumber;
-        private string DiscoveredExtensionsFile => null;
         private int MaxCachedLegs => 0;
 
         private static string BuildSettingsProviderSnapshot(ISettingsProvider settings)
@@ -227,10 +220,9 @@ namespace Pipeline.Components.OSVParser.Processing
         private string BuildEngineStateSnapshot()
         {
             return string.Format(
-                "ExtensionRangeCount={0}, SipMapperIsEmpty={1}, CandidatesCount={2}, RoutingNumbersCount={3}, HuntGroupNumbersCount={4}, DetectedRoutingNumbersCount={5}, GidHexToThreadIdCount={6}, GidHexToFullGidCount={7}, SeenAsCallersCount={8}, SeenAsCalleesCount={9}, DiscoveredExtensionsCount={10}, OutputtedThreadIdsCount={11}, LegsStreamWriterInitialized={12}, CacheCount={13}",
+                "ExtensionRangeCount={0}, SipMapperIsEmpty={1}, RoutingNumbersCount={2}, HuntGroupNumbersCount={3}, DetectedRoutingNumbersCount={4}, GidHexToThreadIdCount={5}, GidHexToFullGidCount={6}, SeenAsCallersCount={7}, SeenAsCalleesCount={8}, OutputtedThreadIdsCount={9}, LegsStreamWriterInitialized={10}, CacheCount={11}",
                 _extensionRange?.Count ?? 0,
                 _sipResolver == null || _sipResolver.IsEmpty,
-                _candidates?.Count ?? 0,
                 _routingNumbers?.Count ?? 0,
                 _huntGroupNumbers?.Count ?? 0,
                 _detectedRoutingNumbers?.Count ?? 0,
@@ -238,7 +230,6 @@ namespace Pipeline.Components.OSVParser.Processing
                 _gidHexToFullGid?.Count ?? 0,
                 _seenAsCallers?.Count ?? 0,
                 _seenAsCallees?.Count ?? 0,
-                _discoveredExtensions?.Count ?? 0,
                 _outputtedThreadIds?.Count ?? 0,
                 _legsStreamWriter != null,
                 _cache?.Count ?? 0);
@@ -396,23 +387,10 @@ namespace Pipeline.Components.OSVParser.Processing
                     .ThenBy(c => c.GlobalCallId)
                     .ToList();
 
-            // Add candidate extensions
-            result.CandidateExtensions = _candidates.Values
-                .OrderByDescending(c => c.Occurrences)
-                .ToList();
-
             stopwatch.Stop();
             result.ProcessingTimeMs = stopwatch.ElapsedMilliseconds;
 
-            _logger.Info($"Processing complete. Files: {result.TotalFilesProcessed}, Records: {result.TotalRecordsProcessed}, Calls: {result.TotalCallsIdentified}, Candidates: {result.CandidateExtensions.Count}, Time: {result.ProcessingTimeMs}ms, Speed: {result.RecordsPerSecond:F0} rec/sec");
-
-            if (result.CandidateExtensions.Count > 0)
-            {
-                foreach (var c in result.CandidateExtensions)
-                {
-                    _logger.Warn($"Candidate extension: {c.Number} ({c.Occurrences}x) - {string.Join(", ", c.Reasons)}");
-                }
-            }
+            _logger.Info($"Processing complete. Files: {result.TotalFilesProcessed}, Records: {result.TotalRecordsProcessed}, Calls: {result.TotalCallsIdentified}, Time: {result.ProcessingTimeMs}ms, Speed: {result.RecordsPerSecond:F0} rec/sec");
 
             if (_detectedRoutingNumbers.Count > 0)
             {
@@ -712,35 +690,6 @@ namespace Pipeline.Components.OSVParser.Processing
         {
             if (string.IsNullOrEmpty(number)) return false;
             return _extensionRange.IsExtension(number);
-        }
-
-        private void DetectCandidateExtension(string number, string fieldName, RawCdrRecord raw)
-        {
-            if (string.IsNullOrEmpty(number)) return;
-            // If range configured and number is already known, skip
-            // If no range configured, run in discovery mode (report all heuristic matches)
-            if (!_extensionRange.IsEmpty && _extensionRange.IsExtension(number)) return;
-
-            // Detect internal numbers using PBX metadata (OrigPartyId)
-            string reason = null;
-
-            if (fieldName == "CallingNumber" && raw.OrigPartyId == 900)
-                reason = "Internal origin (OrigPartyId=900, caller on OpenScape)";
-            else if ((fieldName == "DestinationExt" || fieldName == "DialedNumber") && raw.OrigPartyId == 902)
-                reason = "Internal destination (OrigPartyId=902, destination on OpenScape)";
-
-            if (reason == null) return;
-
-            CandidateExtension candidate;
-            if (!_candidates.TryGetValue(number, out candidate))
-            {
-                candidate = new CandidateExtension { Number = number };
-                _candidates[number] = candidate;
-            }
-
-            candidate.Occurrences++;
-            if (!candidate.Reasons.Contains(reason))
-                candidate.Reasons.Add(reason);
         }
 
         // 

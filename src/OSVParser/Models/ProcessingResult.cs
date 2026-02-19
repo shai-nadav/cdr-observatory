@@ -8,7 +8,6 @@ namespace Pipeline.Components.OSVParser.Models
     public class ProcessingResult
     {
         public List<ProcessedCall> Calls { get; set; } = new List<ProcessedCall>();
-        public List<CandidateExtension> CandidateExtensions { get; set; } = new List<CandidateExtension>();
 
         /// <summary>Raw CDR records that were processed (for optional debug output).</summary>
         public List<RawCdrRecord> RawRecords { get; set; } = new List<RawCdrRecord>();

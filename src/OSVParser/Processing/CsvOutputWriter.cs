@@ -285,7 +285,6 @@ namespace Pipeline.Components.OSVParser.Processing
                 writer.WriteLine($"TotalFilesProcessed,{result.TotalFilesProcessed}");
                 writer.WriteLine($"TotalRecordsProcessed,{result.TotalRecordsProcessed}");
                 writer.WriteLine($"TotalCallsIdentified,{result.TotalCallsIdentified}");
-                writer.WriteLine($"CandidateExtensions,{result.CandidateExtensions.Count}");
                 writer.WriteLine($"OrphanedLegs,{result.OrphanedLegs}");
                 writer.WriteLine($"Warnings,{result.Warnings.Count}");
                 writer.WriteLine($"Errors,{result.Errors.Count}");
