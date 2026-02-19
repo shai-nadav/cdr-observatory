@@ -62,6 +62,7 @@ namespace Pipeline.Components.OSVParser.Processing
         private readonly Pipeline.PipelineContext _pipelineContext;
         private readonly Pipeline.LegMerger _legMerger;
         private readonly Pipeline.TransferChainResolver _transferChainResolver;
+        private readonly Pipeline.LegSuppressor _legSuppressor;
 /// <summary>
         /// Create engine with interface-based dependencies (for TEM-CA or testing).
         /// </summary>
@@ -117,6 +118,7 @@ namespace Pipeline.Components.OSVParser.Processing
             _pipelineContext = BuildPipelineContext();
             _legMerger = new Pipeline.LegMerger(_pipelineContext);
             _transferChainResolver = new Pipeline.TransferChainResolver(_pipelineContext);
+            _legSuppressor = new Pipeline.LegSuppressor(_pipelineContext);
 
             try
             {
@@ -168,6 +170,7 @@ namespace Pipeline.Components.OSVParser.Processing
             _pipelineContext = BuildPipelineContext();
             _legMerger = new Pipeline.LegMerger(_pipelineContext);
             _transferChainResolver = new Pipeline.TransferChainResolver(_pipelineContext);
+            _legSuppressor = new Pipeline.LegSuppressor(_pipelineContext);
         }
 
         private PipelineContext BuildPipelineContext()
@@ -971,23 +974,40 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
         ///     agent's actual outbound call to a real extension/VM)
         /// Answered routing legs (dur>0) are real calls and are kept.
         /// </summary>
-        private bool IsRoutingOnlyLeg(ProcessedLeg leg)
-        {
-            if (leg.Duration == 0)
-            {
-                if (IsRoutingNumber(leg.DestinationExt))
-                    return true;
-                // CallingNumber is routing: only suppress if it's a pure setup leg
-                // (e.g. CMSextension with no talk). Don't suppress CMS outbound calls
-                // to real destinations (they have ForwardingParty or non-routing CalledParty
-                // with actual routing info like DialedNumber).
-                if (IsRoutingNumber(leg.CallingNumber) && !leg.IsAnswered
-                    && string.IsNullOrEmpty(leg.ForwardingParty)
-                    && (string.IsNullOrEmpty(leg.DestinationExt) || IsRoutingNumber(leg.DestinationExt)))
-                    return true;
-            }
-            return false;
-        }
+
+        /// <summary>
+        /// Compute Transfer From on a single leg (without inheritance).
+        /// All rules are field-condition based  no hardcoded numbers.
+        ///
+        /// Priority order matters:
+        ///   1. CalledParty is a routing intermediary  CalledParty
+        ///      (HG/queue number that routed the call; overrides ForwardingParty
+        ///      because the HG is more specific than a pilot/redirect source)
+        ///   2. ForwardingParty is set  ForwardingParty
+        ///      (the extension that forwarded/redirected the call)
+        ///   3. CallingNumber differs from original caller  CallingNumber
+        ///      (a routing agent like CMS placed the call on behalf of the caller)
+        ///   4. CalledParty differs from DestinationExt (DestExt present, not VM)
+        ///       CalledParty (catch-all for intermediate routing not caught above)
+        /// </summary>
+
+        /// <summary>
+        /// Compute Transfer From / Transfer To for all legs in a call.
+        ///
+        /// GENERAL RULES (field-condition based, no hardcoded numbers):
+        ///
+        /// Transfer From = "who routed/transferred this call to this leg"
+        ///   - See ComputeLegTransferFrom for the 4 priority rules
+        ///   - No match  inherit previous leg's TransferFrom
+        ///
+        /// Transfer To = "where the call goes next"
+        ///   - VM leg (CalledParty = configured VM code)  CalledParty
+        ///   - Has next leg  next leg's Transfer From (look-ahead), or next leg's
+        ///     DestinationExt, or next leg's CalledParty
+        ///   - Dedup: if Transfer To == Transfer From, use next leg's endpoint instead
+        ///   - Last leg  null
+        /// </summary>
+
 
         /// <summary>
         /// Suppress routing-only legs from the output.
@@ -997,192 +1017,6 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
         /// Must be called AFTER ComputeTransferChain (so CMS numbers are already
         /// in the transfer fields) and BEFORE computing call-level fields.
         /// </summary>
-        private void SuppressCmsLegs(List<ProcessedLeg> orderedLegs)
-        {
-            if (_routingNumbers.Count == 0 && _detectedRoutingNumbers.Count == 0) return;
-
-            // Identify CMS-routing leg indices
-            var cmsIndices = new HashSet<int>();
-            for (int i = 0; i < orderedLegs.Count; i++)
-            {
-                if (IsRoutingOnlyLeg(orderedLegs[i]))
-                {
-                    cmsIndices.Add(i);
-                    var suppLeg = orderedLegs[i];
-                    _tracer.TraceSuppressedLeg(
-                        suppLeg.ThreadId,
-                        string.Format("Leg#{0} DestExt={1} CallingNum={2} Duration={3} Line={4}",
-                            i + 1, suppLeg.DestinationExt ?? "", suppLeg.CallingNumber ?? "",
-                            suppLeg.Duration, suppLeg.SourceLine),
-                        string.Format("Routing-only: {0}",
-                            IsRoutingNumber(suppLeg.DestinationExt) ? "DestinationExt is routing number" : "CallingNumber is routing number + no forwarding"));
-                }
-            }
-
-            // Answered CMS legs (dur>0) are real calls where user talked to CMS
-            // -- keep them as-is with CMS as DestinationExt.
-
-            if (cmsIndices.Count == 0) return;
-
-            _logger.Debug($"Suppressing {cmsIndices.Count} CMS-routing legs");
-
-            // Update adjacent legs' Transfer From/To to bridge over suppressed CMS legs
-            foreach (var idx in cmsIndices)
-            {
-                var cmsLeg = orderedLegs[idx];
-                // CMS routing number: prefer DestinationExt, fall back to CallingNumber
-                var cmsNumber = !string.IsNullOrEmpty(cmsLeg.DestinationExt)
-                    ? cmsLeg.DestinationExt
-                    : cmsLeg.CallingNumber;
-                // The destination the CMS leg was routing to
-                var cmsTarget = !string.IsNullOrEmpty(cmsLeg.CalledParty) && !IsRoutingNumber(cmsLeg.CalledParty)
-                    ? cmsLeg.CalledParty
-                    : cmsLeg.DestinationExt;
-
-                // Find previous non-CMS leg
-                int prevIdx = -1;
-                for (int i = idx - 1; i >= 0; i--)
-                {
-                    if (!cmsIndices.Contains(i)) { prevIdx = i; break; }
-                }
-
-                // Find next non-CMS leg
-                int nextIdx = -1;
-                for (int i = idx + 1; i < orderedLegs.Count; i++)
-                {
-                    if (!cmsIndices.Contains(i)) { nextIdx = i; break; }
-                }
-
-                // Previous leg's TransferTo: point to the destination the CMS was routing to
-                if (prevIdx >= 0 && !string.IsNullOrEmpty(cmsTarget))
-                {
-                    orderedLegs[prevIdx].TransferTo = cmsTarget;
-                }
-
-                // Next leg's TransferFrom: set to CMS number if not already set
-                // (shows "forwarded from CMS" in the routing chain)
-                if (nextIdx >= 0)
-                {
-                    var nextLeg = orderedLegs[nextIdx];
-                    if (string.IsNullOrEmpty(nextLeg.TransferFrom))
-                    {
-                        nextLeg.TransferFrom = cmsNumber;
-                    }
-                    // Propagate DialedNumber from suppressed CMS leg's target
-                    if (string.IsNullOrEmpty(nextLeg.DialedNumber) && !string.IsNullOrEmpty(cmsTarget))
-                    {
-                        nextLeg.DialedNumber = cmsTarget;
-                    }
-                    // FIX: For Internal calls, also populate CalledExtension (Dest Ext) from CMS target
-                    // Every Internal call must have Dest Ext populated
-                    if (string.IsNullOrEmpty(nextLeg.CalledExtension) && !string.IsNullOrEmpty(cmsTarget)
-                        && IsInternalNumber(cmsTarget))
-                    {
-                        nextLeg.CalledExtension = cmsTarget;
-                    }
-                }
-            }
-
-            // Collect HG numbers from legs about to be suppressed
-            var suppressedHGs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var idx in cmsIndices)
-            {
-                var hg = orderedLegs[idx].HuntGroupNumber;
-                if (!string.IsNullOrEmpty(hg))
-                    suppressedHGs.Add(hg);
-            }
-
-            // Capture original caller before suppression (first non-CMS leg's caller,
-            // or first leg's caller if all are CMS)
-            string originalCallerExt = null;
-            for (int i = 0; i < orderedLegs.Count; i++)
-            {
-                if (!cmsIndices.Contains(i) && !string.IsNullOrEmpty(orderedLegs[i].CallerExtension)
-                    && !IsRoutingNumber(orderedLegs[i].CallerExtension))
-                {
-                    originalCallerExt = orderedLegs[i].CallerExtension;
-                    break;
-                }
-            }
-            // Fallback: if no non-CMS leg found, use first leg's caller if it's not a routing number
-            if (string.IsNullOrEmpty(originalCallerExt) && orderedLegs.Count > 0
-                && !string.IsNullOrEmpty(orderedLegs[0].CallerExtension)
-                && !IsRoutingNumber(orderedLegs[0].CallerExtension))
-            {
-                originalCallerExt = orderedLegs[0].CallerExtension;
-            }
-
-            // Direction aggregation: capture most external direction from legs about to be suppressed
-            var dirPriority = new Dictionary<CallDirection, int>
-            {
-                { CallDirection.TrunkToTrunk, 4 },
-                { CallDirection.Outgoing, 3 },
-                { CallDirection.Incoming, 2 },
-                { CallDirection.Internal, 1 },
-                { CallDirection.Unknown, 0 }
-            };
-            CallDirection mostExternalDir = CallDirection.Internal;
-            int maxPri = 1;
-            foreach (var idx in cmsIndices)
-            {
-                var dir = orderedLegs[idx].CallDirection;
-                int p;
-                var pri = dirPriority.TryGetValue(dir, out p) ? p : 0;
-                if (pri > maxPri) { maxPri = pri; mostExternalDir = dir; }
-            }
-
-            // Remove CMS legs (iterate in reverse to preserve indices)
-            for (int i = orderedLegs.Count - 1; i >= 0; i--)
-            {
-                if (cmsIndices.Contains(i))
-                    orderedLegs.RemoveAt(i);
-            }
-
-            // Propagate external direction from suppressed legs to remaining legs
-            if (maxPri > 1)
-            {
-                foreach (var leg in orderedLegs)
-                {
-                    int lp;
-                    var legPri = dirPriority.TryGetValue(leg.CallDirection, out lp) ? lp : 0;
-                    if (legPri < maxPri)
-                        leg.CallDirection = mostExternalDir;
-                }
-            }
-
-            // Propagate HG numbers from suppressed CMS legs to remaining legs.
-            // Do this BEFORE overwriting CallingNumber with original caller.
-            if (suppressedHGs.Count > 0)
-            {
-                var hgNumber = suppressedHGs.First();
-                foreach (var leg in orderedLegs)
-                {
-                    if (string.IsNullOrEmpty(leg.HuntGroupNumber)
-                        && IsRoutingNumber(leg.CallingNumber))
-                        leg.HuntGroupNumber = hgNumber;
-                }
-            }
-
-            // Propagate original caller to remaining legs that have routing numbers as caller
-            if (!string.IsNullOrEmpty(originalCallerExt))
-            {
-                foreach (var leg in orderedLegs)
-                {
-                    if (IsRoutingNumber(leg.CallerExtension) || IsRoutingNumber(leg.CallingNumber))
-                    {
-                        leg.CallerExtension = originalCallerExt;
-                        leg.CallingNumber = originalCallerExt;
-                    }
-                }
-            }
-
-            // Re-number remaining legs
-            for (int i = 0; i < orderedLegs.Count; i++)
-            {
-                orderedLegs[i].LegIndex = i + 1;
-            }
-
-        }
 
         /// <summary>
         /// Apply post-processing to legs after call assembly: direction propagation,
@@ -1460,7 +1294,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                 }
 
                 // Suppress routing-only legs (CMS, pilot  only in Transfer From/To)
-                SuppressCmsLegs(orderedLegs);
+                _legSuppressor.SuppressCmsLegs(orderedLegs);
 
                 // After CMS suppression, legs whose TransferFrom is a routing number
                 // represent internal routing steps (CMSagent)  direction=Internal
@@ -2095,7 +1929,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
                     preSuppressionCallerDirection = externalLeg.CallDirection;
                 }
 
-            SuppressCmsLegs(orderedLegs);
+            _legSuppressor.SuppressCmsLegs(orderedLegs);
 
             if (orderedLegs.Count == 0) return null;
 
