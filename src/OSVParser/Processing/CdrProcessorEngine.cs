@@ -8,6 +8,7 @@ using Pipeline.Components.OSVParser.Config;
 using System.Text.RegularExpressions;
 using Pipeline.Components.OSVParser.Models;
 using Pipeline.Components.OSVParser.Parser;
+using Pipeline.Components.OSVParser.Processing.Pipeline;
 
 
 namespace Pipeline.Components.OSVParser.Processing
@@ -58,6 +59,7 @@ namespace Pipeline.Components.OSVParser.Processing
         private readonly HashSet<string> _outputtedThreadIds;
         private CsvOutputWriter.LegsStreamWriter _legsStreamWriter;
         private DecodedCdrWriter _decodedCdrWriter;
+        private readonly Pipeline.PipelineContext _pipelineContext;
 /// <summary>
         /// Create engine with interface-based dependencies (for TEM-CA or testing).
         /// </summary>
@@ -110,6 +112,7 @@ namespace Pipeline.Components.OSVParser.Processing
                         
             // Keep legacy _config for backward compat with internal methods
             _config = null; // Will use _settings instead
+            _pipelineContext = BuildPipelineContext();
 
             try
             {
@@ -158,6 +161,39 @@ namespace Pipeline.Components.OSVParser.Processing
             _outputtedThreadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         _settings = null;
             _pendingRepo = null;
+            _pipelineContext = BuildPipelineContext();
+        }
+
+        private PipelineContext BuildPipelineContext()
+        {
+            return new PipelineContext(
+                _logger,
+                _tracer,
+                _sipResolver,
+                _directionResolver,
+                _extensionRange,
+                _cache,
+                _routingNumbers,
+                _huntGroupNumbers,
+                _detectedRoutingNumbers,
+                _gidHexToThreadId,
+                _gidHexToFullGid,
+                _candidates,
+                _seenAsCallers,
+                _seenAsCallees,
+                _discoveredExtensions,
+                _unknownSipEndpoints,
+                IsInternalNumber,
+                GetVoicemailNumber,
+                IsRoutingNumber,
+                IsHuntGroupNumber,
+                IsVmLeg,
+                IsSipPstn,
+                IsSipKnown,
+                NormalizeEndpoint,
+                IsInternalDestForEmptyRanges,
+                () => _detectedVoicemailNumber,
+                value => _detectedVoicemailNumber = value);
         }
 
         // Helper properties to get settings from either interface or legacy config
