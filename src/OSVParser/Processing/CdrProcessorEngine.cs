@@ -46,7 +46,6 @@ namespace Pipeline.Components.OSVParser.Processing
         // Extension discovery: track numbers seen as caller vs callee
 
         // Track which ThreadIds have been output via eviction (to avoid double output)
-        private readonly HashSet<string> _outputtedThreadIds;
         private CsvOutputWriter.LegsStreamWriter _legsStreamWriter;
         private DecodedCdrWriter _decodedCdrWriter;
         private readonly Pipeline.PipelineContext _pipelineContext;
@@ -98,15 +97,14 @@ namespace Pipeline.Components.OSVParser.Processing
             _detectedRoutingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _gidHexToThreadId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             _gidHexToFullGid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            _outputtedThreadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         
             _pipelineContext = BuildPipelineContext();
             _legMerger = new Pipeline.LegMerger(_pipelineContext);
             _transferChainResolver = new Pipeline.TransferChainResolver(_pipelineContext);
             _legSuppressor = new Pipeline.LegSuppressor(_pipelineContext);
             _callFinalizer = new Pipeline.CallFinalizer(_pipelineContext);
-            _callAssembler = new Pipeline.CallAssembler(_pipelineContext, _legMerger, _transferChainResolver, _legSuppressor, _callFinalizer, _outputtedThreadIds, EmitCall);
-            _legBuilder = new Pipeline.LegBuilder(_pipelineContext, CalculateRingTime, GetGidHex, CheckStreamingOutput);
+            _callAssembler = new Pipeline.CallAssembler(_pipelineContext, _legMerger, _transferChainResolver, _legSuppressor, _callFinalizer, EmitCall);
+            _legBuilder = new Pipeline.LegBuilder(_pipelineContext, CalculateRingTime, GetGidHex);
 
             try
             {
@@ -161,8 +159,6 @@ namespace Pipeline.Components.OSVParser.Processing
         private bool WriteDecodedCdrs => _settings.WriteDecodedCdrs;
         
         private bool DeleteInputFiles => _settings.DeleteInputFiles;
-        private string VoicemailNumber => null;
-        private int MaxCachedLegs => 0;
 
         private static string BuildSettingsProviderSnapshot(ISettingsProvider settings)
         {
@@ -214,7 +210,6 @@ namespace Pipeline.Components.OSVParser.Processing
                 _detectedRoutingNumbers?.Count ?? 0,
                 _gidHexToThreadId?.Count ?? 0,
                 _gidHexToFullGid?.Count ?? 0,
-                _outputtedThreadIds?.Count ?? 0,
                 _legsStreamWriter != null,
                 _cache?.Count ?? 0);
         }
@@ -463,22 +458,15 @@ namespace Pipeline.Components.OSVParser.Processing
             if ((leg.PerCallFeatureExt & 64) != 0)
                 return true;
             
-            // Check configured voicemail number first
-            if (!string.IsNullOrEmpty(VoicemailNumber) && leg.CalledParty == VoicemailNumber)
-                return true;
-            
-            // Fallback: check auto-detected voicemail number
             return !string.IsNullOrEmpty(_detectedVoicemailNumber) && leg.CalledParty == _detectedVoicemailNumber;
         }
 
         /// <summary>
-        /// Get the effective voicemail number (configured or auto-detected).
+        /// Get the auto-detected voicemail number.
         /// </summary>
         private string GetVoicemailNumber()
         {
-            return !string.IsNullOrEmpty(VoicemailNumber)
-                ? VoicemailNumber
-                : _detectedVoicemailNumber;
+            return _detectedVoicemailNumber;
         }
 
         private string NormalizeEndpoint(string endpoint)
@@ -646,17 +634,6 @@ namespace Pipeline.Components.OSVParser.Processing
 
 
 
-        private void HandleEvictedCall(ProcessedCall call, ProcessingResult result)
-
-        {
-
-            if (_legsStreamWriter == null) throw new InvalidOperationException("Legs stream writer not initialized.");
-
-            _legsStreamWriter.WriteCall(call);
-
-        }
-
-
         /// <summary>
         /// Assemble all cached legs into complete calls grouped by Thread ID.
         /// Thread ID (CDR field 124) is the authoritative call grouping identifier.
@@ -678,53 +655,6 @@ namespace Pipeline.Components.OSVParser.Processing
         // 
         // Streaming Output & Memory Management
         // 
-
-        /// <summary>
-        /// Called after storing a leg. Enforces cache limit via eviction.
-        /// </summary>
-        private void CheckStreamingOutput(string threadId, ProcessingResult result)
-        {
-            EnforceCacheLimit(result);
-        }
-
-        /// <summary>
-        /// Evict oldest calls when cache exceeds MaxCachedLegs.
-        /// </summary>
-        private void EnforceCacheLimit(ProcessingResult result)
-        {
-            if (MaxCachedLegs <= 0) return; // No limit
-
-            while (_cache.Count > MaxCachedLegs)
-            {
-                // Find oldest call (by earliest leg timestamp)
-                string oldestKey = null;
-                string oldestTime = null;
-
-                foreach (var key in _cache.GetAllGids())
-                {
-                    if (_outputtedThreadIds.Contains(key)) continue;
-                    var legs = _cache.GetPendingLegs(key);
-                    var earliest = legs.Min(l => l.InLegConnectTime ?? "");
-                    if (oldestTime == null || string.Compare(earliest, oldestTime, StringComparison.Ordinal) < 0)
-                    {
-                        oldestTime = earliest;
-                        oldestKey = key;
-                    }
-                }
-
-                if (oldestKey == null) break; // Nothing to evict
-
-                var evictLegs = _cache.GetPendingLegs(oldestKey);
-                var evictCall = _callAssembler.AssembleSingleCall(evictLegs);
-                if (evictCall != null)
-                {
-                    HandleEvictedCall(evictCall, result);
-                    _logger.Debug($"Eviction output: {oldestKey} (cache={_cache.Count})");
-                }
-                _outputtedThreadIds.Add(oldestKey);
-                _cache.RemoveCall(oldestKey);
-            }
-        }
 
     }
 }
