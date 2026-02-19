@@ -50,9 +50,7 @@ namespace Pipeline.Components.OSVParser.Processing
         private readonly HashSet<string> _seenAsCallees;
         private readonly HashSet<string> _discoveredExtensions;
 
-        // Streaming output: calls output early (before end of batch)
-        private readonly List<ProcessedCall> _earlyOutputCalls;
-        // Track which ThreadIds have been output early (to avoid double output)
+        // Track which ThreadIds have been output via eviction (to avoid double output)
         private readonly HashSet<string> _outputtedThreadIds;
         private CsvOutputWriter.LegsStreamWriter _legsStreamWriter;
         private DecodedCdrWriter _decodedCdrWriter;
@@ -110,7 +108,6 @@ namespace Pipeline.Components.OSVParser.Processing
             _seenAsCallers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _seenAsCallees = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _discoveredExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _earlyOutputCalls = new List<ProcessedCall>();
             _outputtedThreadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         
             _pipelineContext = BuildPipelineContext();
@@ -181,7 +178,6 @@ namespace Pipeline.Components.OSVParser.Processing
         private bool DeleteInputFiles => _settings.DeleteInputFiles;
         private string VoicemailNumber => _settings.VoicemailNumber;
         private string DiscoveredExtensionsFile => null;
-        private bool EnableCallCompletionDetection => false;
         private int MaxCachedLegs => 0;
 
         private static string BuildSettingsProviderSnapshot(ISettingsProvider settings)
@@ -231,7 +227,7 @@ namespace Pipeline.Components.OSVParser.Processing
         private string BuildEngineStateSnapshot()
         {
             return string.Format(
-                "ExtensionRangeCount={0}, SipMapperIsEmpty={1}, CandidatesCount={2}, RoutingNumbersCount={3}, HuntGroupNumbersCount={4}, DetectedRoutingNumbersCount={5}, GidHexToThreadIdCount={6}, GidHexToFullGidCount={7}, SeenAsCallersCount={8}, SeenAsCalleesCount={9}, DiscoveredExtensionsCount={10}, EarlyOutputCallsCount={11}, OutputtedThreadIdsCount={12}, LegsStreamWriterInitialized={13}, CacheCount={14}",
+                "ExtensionRangeCount={0}, SipMapperIsEmpty={1}, CandidatesCount={2}, RoutingNumbersCount={3}, HuntGroupNumbersCount={4}, DetectedRoutingNumbersCount={5}, GidHexToThreadIdCount={6}, GidHexToFullGidCount={7}, SeenAsCallersCount={8}, SeenAsCalleesCount={9}, DiscoveredExtensionsCount={10}, OutputtedThreadIdsCount={11}, LegsStreamWriterInitialized={12}, CacheCount={13}",
                 _extensionRange?.Count ?? 0,
                 _sipResolver == null || _sipResolver.IsEmpty,
                 _candidates?.Count ?? 0,
@@ -243,7 +239,6 @@ namespace Pipeline.Components.OSVParser.Processing
                 _seenAsCallers?.Count ?? 0,
                 _seenAsCallees?.Count ?? 0,
                 _discoveredExtensions?.Count ?? 0,
-                _earlyOutputCalls?.Count ?? 0,
                 _outputtedThreadIds?.Count ?? 0,
                 _legsStreamWriter != null,
                 _cache?.Count ?? 0);
@@ -392,17 +387,7 @@ namespace Pipeline.Components.OSVParser.Processing
                 progress?.Report((int)((i + 1.0) / files.Length * 100));
             }
 
-            // Add early-output calls (streaming mode)
-            if (_earlyOutputCalls.Count > 0)
-            {
-                foreach (var call in _earlyOutputCalls)
-                {
-                    EmitCall(call, result);
-                }
-                _logger.Info($"Added {_earlyOutputCalls.Count} early-output calls");
-            }
-
-            // Assemble remaining calls from cache (skips already-output calls)
+            // Assemble remaining calls from cache (skips already-evicted calls)
             _callAssembler.AssembleCalls(result);
 
                 // Sort calls by timestamp for deterministic output (filesystem order varies)
@@ -699,7 +684,7 @@ namespace Pipeline.Components.OSVParser.Processing
 
 
 
-        private void HandleEarlyOutputCall(ProcessedCall call, ProcessingResult result)
+        private void HandleEvictedCall(ProcessedCall call, ProcessingResult result)
 
         {
 
@@ -763,75 +748,10 @@ namespace Pipeline.Components.OSVParser.Processing
         // 
 
         /// <summary>
-        /// Check if a call is ready for early output (direction is reliably determined).
-        /// Returns false for potential T2T calls to avoid wrong direction output.
-        /// </summary>
-        private bool IsCallReadyForEarlyOutput(List<ProcessedLeg> legs, out CallDirection direction)
-        {
-            direction = CallDirection.Unknown;
-            if (legs == null || legs.Count == 0) return false;
-
-            var firstWithDirection = legs.FirstOrDefault(l => l.CallDirection != CallDirection.Unknown);
-            if (firstWithDirection == null) return false;
-
-            // Check if caller is external (potential T2T)
-            var hasExternalCaller = legs.Any(l =>
-                !string.IsNullOrEmpty(l.CallerExternal) &&
-                string.IsNullOrEmpty(l.CallerExtension));
-
-            if (hasExternalCaller)
-            {
-                // External caller: need to confirm it's not T2T
-                // T2T = external caller + ALL destinations are external
-                // If we see an internal destination => confirmed Incoming
-                // If no internal destination yet => might be T2T, wait
-                var hasInternalDest = legs.Any(l =>
-                    !string.IsNullOrEmpty(l.DestinationExt) &&
-                    IsInternalNumber(l.DestinationExt));
-
-                if (!hasInternalDest)
-                {
-                    // Could be T2T - check for forwarding (strong T2T indicator)
-                    var hasForwarding = legs.Any(l => l.IsForwarded || !string.IsNullOrEmpty(l.ForwardingParty));
-                    if (hasForwarding)
-                    {
-                        return false; // Might be T2T, wait for more legs
-                    }
-                }
-
-                direction = CallDirection.Incoming;
-                return true;
-            }
-
-            // Internal caller: use first leg's direction
-            direction = firstWithDirection.CallDirection;
-            return true;
-        }
-
-        /// <summary>
-        /// Called after storing a leg. Checks for early output and enforces cache limit.
+        /// Called after storing a leg. Enforces cache limit via eviction.
         /// </summary>
         private void CheckStreamingOutput(string threadId, ProcessingResult result)
         {
-            // Early output (when enabled): output calls as soon as direction is known
-            if (EnableCallCompletionDetection && !_outputtedThreadIds.Contains(threadId))
-            {
-                var legs = _cache.GetPendingLegs(threadId);
-                CallDirection direction;
-                if (IsCallReadyForEarlyOutput(legs, out direction))
-                {
-                    var call = _callAssembler.AssembleSingleCall(legs);
-                    if (call != null)
-                    {
-                        HandleEarlyOutputCall(call, result);
-                        _outputtedThreadIds.Add(threadId);
-                        _cache.RemoveCall(threadId);
-                        _logger.Debug($"Early output: {threadId} as {call.CallDirection}");
-                    }
-                }
-            }
-
-            // Always enforce cache limit via eviction (production default)
             EnforceCacheLimit(result);
         }
 
@@ -866,7 +786,7 @@ namespace Pipeline.Components.OSVParser.Processing
                 var evictCall = _callAssembler.AssembleSingleCall(evictLegs);
                 if (evictCall != null)
                 {
-                    HandleEarlyOutputCall(evictCall, result);
+                    HandleEvictedCall(evictCall, result);
                     _logger.Debug($"Eviction output: {oldestKey} (cache={_cache.Count})");
                 }
                 _outputtedThreadIds.Add(oldestKey);
