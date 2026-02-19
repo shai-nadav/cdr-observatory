@@ -44,8 +44,6 @@ namespace Pipeline.Components.OSVParser.Processing
         private readonly Dictionary<string, string> _gidHexToFullGid;
         
         // Extension discovery: track numbers seen as caller vs callee
-        private readonly HashSet<string> _seenAsCallers;
-        private readonly HashSet<string> _seenAsCallees;
 
         // Track which ThreadIds have been output via eviction (to avoid double output)
         private readonly HashSet<string> _outputtedThreadIds;
@@ -100,8 +98,6 @@ namespace Pipeline.Components.OSVParser.Processing
             _detectedRoutingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _gidHexToThreadId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             _gidHexToFullGid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            _seenAsCallers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _seenAsCallees = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _outputtedThreadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         
             _pipelineContext = BuildPipelineContext();
@@ -142,8 +138,6 @@ namespace Pipeline.Components.OSVParser.Processing
                 _detectedRoutingNumbers,
                 _gidHexToThreadId,
                 _gidHexToFullGid,
-                _seenAsCallers,
-                _seenAsCallees,
                 _unknownSipEndpoints,
                 IsInternalNumber,
                 GetVoicemailNumber,
@@ -213,15 +207,13 @@ namespace Pipeline.Components.OSVParser.Processing
         private string BuildEngineStateSnapshot()
         {
             return string.Format(
-                "SipMapperIsEmpty={0}, RoutingNumbersCount={1}, HuntGroupNumbersCount={2}, DetectedRoutingNumbersCount={3}, GidHexToThreadIdCount={4}, GidHexToFullGidCount={5}, SeenAsCallersCount={6}, SeenAsCalleesCount={7}, OutputtedThreadIdsCount={8}, LegsStreamWriterInitialized={9}, CacheCount={10}",
+                "SipMapperIsEmpty={0}, RoutingNumbersCount={1}, HuntGroupNumbersCount={2}, DetectedRoutingNumbersCount={3}, GidHexToThreadIdCount={4}, GidHexToFullGidCount={5}, OutputtedThreadIdsCount={6}, LegsStreamWriterInitialized={7}, CacheCount={8}",
                 _sipResolver == null || _sipResolver.IsEmpty,
                 _routingNumbers?.Count ?? 0,
                 _huntGroupNumbers?.Count ?? 0,
                 _detectedRoutingNumbers?.Count ?? 0,
                 _gidHexToThreadId?.Count ?? 0,
                 _gidHexToFullGid?.Count ?? 0,
-                _seenAsCallers?.Count ?? 0,
-                _seenAsCallees?.Count ?? 0,
                 _outputtedThreadIds?.Count ?? 0,
                 _legsStreamWriter != null,
                 _cache?.Count ?? 0);
