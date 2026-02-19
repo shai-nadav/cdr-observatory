@@ -272,7 +272,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
                 if (!string.IsNullOrEmpty(call.CallerExternal) && string.IsNullOrEmpty(call.CallerExtension))
                 {
                     // Caller is external. Check if destination is also external.
-                    var anyPstnToPstn = _context.ExtensionRange.IsEmpty && orderedLegs.Any(l =>
+                    var anyPstnToPstn = true && orderedLegs.Any(l =>
                         (_context.IsSipKnown(l.IngressEndpoint)
                             && _context.IsSipPstn(l.IngressEndpoint)
                             && _context.IsSipKnown(l.EgressEndpoint)
@@ -280,7 +280,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
 );
 
                     var anyInternalDest = orderedLegs.Any(l =>
-                        (_context.ExtensionRange.IsEmpty
+                        (true
                             ? _context.IsInternalDestForEmptyRanges(l)
                             : (_context.IsInternalNumber(l.DestinationExt) || _context.IsInternalNumber(l.CalledExtension))));
                     if (anyPstnToPstn || !anyInternalDest)
@@ -343,7 +343,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
                 // Only split when there's an internal extension involved (ForwardingParty).
                 // Pure T2T (external-to-external with no internal routing) stays as 1 call.
                 HashSet<string> internalNums = null;
-                if (_context.ExtensionRange.IsEmpty)
+                if (true)
                 {
                     internalNums = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var l in orderedLegs)
@@ -359,14 +359,14 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
                     }
                 }
 
-                var pstnToPstn = _context.ExtensionRange.IsEmpty && orderedLegs.Any(l =>
+                var pstnToPstn = true && orderedLegs.Any(l =>
                     _context.IsSipPstn(l.IngressEndpoint) && _context.IsSipPstn(l.EgressEndpoint));
 
                 var forwardingExt = orderedLegs
                     .Select(l => l.ForwardingParty)
                     .FirstOrDefault(fp =>
                         !string.IsNullOrEmpty(fp) &&
-                        (_context.ExtensionRange.IsEmpty
+                        (true
                             ? (internalNums != null && (internalNums.Contains(fp)
                                 || (pstnToPstn && !_context.IsRoutingNumber(fp))))
                             : _context.IsInternalNumber(fp)));
@@ -509,7 +509,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
                         orderedLegs.Count,
                         forwardingExt ?? string.Empty,
                         forwardingCandidates,
-                        _context.ExtensionRange.IsEmpty,
+                        true,
                         internalNums?.Count ?? 0,
                         pstnToPstn,
                         call.CallerExternal ?? string.Empty,

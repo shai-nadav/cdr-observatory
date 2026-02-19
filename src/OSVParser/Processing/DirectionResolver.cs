@@ -1,19 +1,17 @@
-﻿using System;
-using Pipeline.Components.OSVParser.Config;
+using System;
 using Pipeline.Components.OSVParser.Models;
 using Pipeline.Components.OSVParser.Cache;
 
 namespace Pipeline.Components.OSVParser.Processing
 {
     /// <summary>
-    /// Facade: delegates direction resolution to the appropriate strategy.
+    /// Facade: delegates direction resolution to SIP endpoint strategy.
     /// </summary>
     internal sealed class DirectionResolver
     {
         private readonly IDirectionResolver _resolver;
 
         public DirectionResolver(
-            ExtensionRangeParser extensionRange,
             ISipEndpointResolver sipResolver,
             ICacheStore cache,
             Func<string, bool> isInternalNumber,
@@ -21,16 +19,8 @@ namespace Pipeline.Components.OSVParser.Processing
             IProcessorLogger log = null,
             IProcessingTracer tracer = null)
         {
-            if (extensionRange == null) throw new ArgumentNullException(nameof(extensionRange));
-
-            _resolver = extensionRange.IsEmpty
-                ? (IDirectionResolver)new SipEndpointDirectionResolver(sipResolver, cache, isInternalNumber, getVoicemailNumber, log, tracer)
-                : new ExtensionRangeDirectionResolver(extensionRange, isInternalNumber, getVoicemailNumber, log);
-
-            log?.Info(
-                "DirectionResolver selected resolver: {0} (ExtensionRangeIsEmpty={1})",
-                _resolver.GetType().Name,
-                extensionRange.IsEmpty);
+            _resolver = new SipEndpointDirectionResolver(sipResolver, cache, isInternalNumber, getVoicemailNumber, log, tracer);
+            log?.Info("DirectionResolver using SipEndpointDirectionResolver");
         }
 
         public CallDirection ResolveDirection(RawCdrRecord raw, string threadId, out bool callerIsInternal, out bool destIsInternal)
@@ -40,5 +30,3 @@ namespace Pipeline.Components.OSVParser.Processing
             => _resolver.AssignCallerCalledFields(leg, raw, direction, callerIsInternal, destIsInternal);
     }
 }
-
-

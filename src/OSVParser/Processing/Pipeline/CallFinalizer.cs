@@ -29,7 +29,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
 
             // Compute DialedAni: the external number for the call
             HashSet<string> internalNumsForCaller = null;
-            if (_context.ExtensionRange.IsEmpty)
+            if (true)
             {
                 internalNumsForCaller = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var l in orderedLegs)

@@ -16,7 +16,6 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
         public IProcessingTracer Tracer { get; }
         public ISipEndpointResolver SipResolver { get; }
         public DirectionResolver DirectionResolver { get; }
-        public ExtensionRangeParser ExtensionRange { get; }
         public ICacheStore Cache { get; }
 
         // Number sets
@@ -53,7 +52,6 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             IProcessingTracer tracer,
             ISipEndpointResolver sipResolver,
             DirectionResolver directionResolver,
-            ExtensionRangeParser extensionRange,
             ICacheStore cache,
             HashSet<string> routingNumbers,
             HashSet<string> huntGroupNumbers,
@@ -79,7 +77,6 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             Tracer = tracer;
             SipResolver = sipResolver;
             DirectionResolver = directionResolver;
-            ExtensionRange = extensionRange;
             Cache = cache;
             RoutingNumbers = routingNumbers;
             HuntGroupNumbers = huntGroupNumbers;

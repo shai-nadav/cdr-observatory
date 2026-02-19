@@ -25,7 +25,6 @@ namespace Pipeline.Components.OSVParser.Processing
         private readonly IProcessorLogger _logger;
         private readonly IPendingCallsRepository _pendingRepo;
         
-        private readonly ExtensionRangeParser _extensionRange;
         private readonly ISipEndpointResolver _sipResolver;
         private readonly HashSet<string> _unknownSipEndpoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly DirectionResolver _directionResolver;
@@ -82,7 +81,6 @@ namespace Pipeline.Components.OSVParser.Processing
             _tracer = tracer ?? NullProcessingTracer.Instance;
             
             // Build internal state from settings
-            _extensionRange = new ExtensionRangeParser(settings.ExtensionRanges);
             // Unified SIP resolver: prefer file-based mapper if SipEndpointsFile is set, else wrap the provider
             if (!string.IsNullOrEmpty(settings.SipEndpointsFile))
             {
@@ -94,7 +92,7 @@ namespace Pipeline.Components.OSVParser.Processing
             {
                 _sipResolver = new SipEndpointProviderAdapter(sipProvider);
             }
-            _directionResolver = new DirectionResolver(_extensionRange, _sipResolver, _cache, IsInternalNumber, GetVoicemailNumber, _logger, _tracer);
+            _directionResolver = new DirectionResolver(_sipResolver, _cache, IsInternalNumber, GetVoicemailNumber, _logger, _tracer);
 
             _parser = new CdrCsvParser();
             _routingNumbers = new HashSet<string>(settings.RoutingNumbers ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
@@ -138,7 +136,6 @@ namespace Pipeline.Components.OSVParser.Processing
                 _tracer,
                 _sipResolver,
                 _directionResolver,
-                _extensionRange,
                 _cache,
                 _routingNumbers,
                 _huntGroupNumbers,
@@ -178,7 +175,7 @@ namespace Pipeline.Components.OSVParser.Processing
             if (settings == null) return "null";
 
             return string.Format(
-                "InstanceId={0}, InputFolder={1}, OutputFolder={2}, ArchiveFolder={3}, WorkFolder={4}, DecodedFolder={5}, OrphanFolder={6}, SipEndpointsFile={7}, FilePattern={8}, IncompleteRetentionHours={9}, MaxPendingQueueSize={10}, WriteDecodedCdrs={11}, DeleteInputFiles={12}, VoicemailNumber={13}, ExtensionRanges={14}, RoutingNumbers={15}, HuntGroupNumbers={16}",
+                "InstanceId={0}, InputFolder={1}, OutputFolder={2}, ArchiveFolder={3}, WorkFolder={4}, DecodedFolder={5}, OrphanFolder={6}, SipEndpointsFile={7}, FilePattern={8}, IncompleteRetentionHours={9}, MaxPendingQueueSize={10}, WriteDecodedCdrs={11}, DeleteInputFiles={12}, VoicemailNumber={13}, RoutingNumbers={14}, HuntGroupNumbers={15}",
                 settings.InstanceId ?? string.Empty,
                 settings.InputFolder ?? string.Empty,
                 settings.OutputFolder ?? string.Empty,
@@ -193,7 +190,6 @@ namespace Pipeline.Components.OSVParser.Processing
                 settings.WriteDecodedCdrs,
                 settings.DeleteInputFiles,
                 settings.VoicemailNumber ?? string.Empty,
-                JoinValues(settings.ExtensionRanges),
                 JoinValues(settings.RoutingNumbers),
                 JoinValues(settings.HuntGroupNumbers));
         }
@@ -220,8 +216,7 @@ namespace Pipeline.Components.OSVParser.Processing
         private string BuildEngineStateSnapshot()
         {
             return string.Format(
-                "ExtensionRangeCount={0}, SipMapperIsEmpty={1}, RoutingNumbersCount={2}, HuntGroupNumbersCount={3}, DetectedRoutingNumbersCount={4}, GidHexToThreadIdCount={5}, GidHexToFullGidCount={6}, SeenAsCallersCount={7}, SeenAsCalleesCount={8}, OutputtedThreadIdsCount={9}, LegsStreamWriterInitialized={10}, CacheCount={11}",
-                _extensionRange?.Count ?? 0,
+                "SipMapperIsEmpty={0}, RoutingNumbersCount={1}, HuntGroupNumbersCount={2}, DetectedRoutingNumbersCount={3}, GidHexToThreadIdCount={4}, GidHexToFullGidCount={5}, SeenAsCallersCount={6}, SeenAsCalleesCount={7}, OutputtedThreadIdsCount={8}, LegsStreamWriterInitialized={9}, CacheCount={10}",
                 _sipResolver == null || _sipResolver.IsEmpty,
                 _routingNumbers?.Count ?? 0,
                 _huntGroupNumbers?.Count ?? 0,
@@ -281,7 +276,7 @@ namespace Pipeline.Components.OSVParser.Processing
                 return result;
             }
 
-            _logger.Info($"Starting CDR processing. Input: {folder}, Ranges: {_extensionRange.Count}, Pattern: {FilePattern}");
+            _logger.Info($"Starting CDR processing. Input: {folder}, Pattern: {FilePattern}");
 
             var files = Directory.GetFiles(folder, FilePattern)
                 .OrderBy(f => f) // Sort by filename first
@@ -688,8 +683,7 @@ namespace Pipeline.Components.OSVParser.Processing
 
         private bool IsInternalNumber(string number)
         {
-            if (string.IsNullOrEmpty(number)) return false;
-            return _extensionRange.IsExtension(number);
+            return false; // Extension ranges removed; SIP endpoints handle classification
         }
 
         // 
