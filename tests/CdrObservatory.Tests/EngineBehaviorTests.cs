@@ -42,7 +42,6 @@ namespace CdrObservatory.Tests
         // Configurable settings
         public bool SettingsWriteDecodedCdrs { get; set; } = true;
         public bool SettingsDeleteInputFiles { get; set; } = false;
-        public IList<string> SettingsExtensionRanges { get; set; } = new List<string>();
         public string SettingsVoicemailNumber { get; set; } = "";
         public IList<string> SettingsRoutingNumbers { get; set; } = new List<string>();
         public IList<string> SettingsHuntGroupNumbers { get; set; } = new List<string>();
@@ -68,7 +67,6 @@ namespace CdrObservatory.Tests
         string ISettingsProvider.DecodedFolder => DecodedDir;
         string ISettingsProvider.OrphanFolder => OrphanDir;
         string ISettingsProvider.SipEndpointsFile => null;
-        IList<string> ISettingsProvider.ExtensionRanges => SettingsExtensionRanges;
         string ISettingsProvider.VoicemailNumber => SettingsVoicemailNumber;
         IList<string> ISettingsProvider.RoutingNumbers => SettingsRoutingNumbers;
         IList<string> ISettingsProvider.HuntGroupNumbers => SettingsHuntGroupNumbers;

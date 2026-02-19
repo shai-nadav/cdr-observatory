@@ -94,7 +94,6 @@ app.MapPost("/api/process", async (HttpRequest request) =>
         }
 
         // Parse optional form fields
-        var extensionRanges = ParseFormList(form, "extensionRanges");
         var routingNumbers = ParseFormList(form, "routingNumbers");
         var huntGroupNumbers = ParseFormList(form, "huntGroupNumbers");
         var voicemailNumber = form.ContainsKey("voicemailNumber") ? form["voicemailNumber"].ToString().Trim() : null;
@@ -108,7 +107,6 @@ app.MapPost("/api/process", async (HttpRequest request) =>
             SipEndpointsFile = sipFilePath,
             WriteDecodedCdrs = true,
             DeleteInputFiles = false,
-            ExtensionRanges = extensionRanges,
             RoutingNumbers = routingNumbers,
             HuntGroupNumbers = huntGroupNumbers,
             VoicemailNumber = string.IsNullOrWhiteSpace(voicemailNumber) ? null : voicemailNumber,

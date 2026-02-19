@@ -503,13 +503,12 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
                         orderedLegs.Select(l => l.CalledParty).Distinct(StringComparer.OrdinalIgnoreCase));
 
                     _context.Logger.Info(
-                        "T2T split skipped. ThreadId={0}, GlobalCallId={1}, LegsCount={2}, ForwardingExt={3}, ForwardingCandidates={4}, ExtensionRangeIsEmpty={5}, InternalNumsCount={6}, PstnToPstn={7}, CallerExternal={8}, CallerExtension={9}, CallingCandidates={10}, DestinationCandidates={11}, CalledPartyCandidates={12}",
+                        "T2T split skipped. ThreadId={0}, GlobalCallId={1}, LegsCount={2}, ForwardingExt={3}, ForwardingCandidates={4}, InternalNumsCount={5}, PstnToPstn={6}, CallerExternal={7}, CallerExtension={8}, CallingCandidates={9}, DestinationCandidates={10}, CalledPartyCandidates={11}",
                         call.ThreadId,
                         call.GlobalCallId,
                         orderedLegs.Count,
                         forwardingExt ?? string.Empty,
                         forwardingCandidates,
-                        true,
                         internalNums?.Count ?? 0,
                         pstnToPstn,
                         call.CallerExternal ?? string.Empty,

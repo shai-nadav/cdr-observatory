@@ -476,7 +476,6 @@ namespace Pipeline.Components.OSVParser.Processing
             public string OrphanFolder => Path.Combine(_workPathParent, "OSVParserOrphans");
             public string SipEndpointsFile => Path.Combine(_sipImportDir, "SipEndpoints.xml");
             
-            public IList<string> ExtensionRanges => new List<string>();
             public string VoicemailNumber => null;
             public IList<string> RoutingNumbers => new List<string>();
             public IList<string> HuntGroupNumbers => new List<string>();

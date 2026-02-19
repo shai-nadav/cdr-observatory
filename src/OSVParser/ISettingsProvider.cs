@@ -37,7 +37,6 @@ namespace Pipeline.Components.OSVParser
         // -------------------------------------------------------------------
         
         /// <summary>Extension ranges defining internal numbers</summary>
-        IList<string> ExtensionRanges { get; }
         
         /// <summary>Voicemail pilot number</summary>
         string VoicemailNumber { get; }
