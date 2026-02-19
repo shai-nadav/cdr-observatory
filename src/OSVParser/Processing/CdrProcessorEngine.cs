@@ -25,9 +25,6 @@ namespace Pipeline.Components.OSVParser.Processing
         private readonly IProcessorLogger _logger;
         private readonly IPendingCallsRepository _pendingRepo;
         
-        // Legacy config (kept for backward compatibility)
-        private readonly CdrProcessorConfig _config;
-        
         private readonly ExtensionRangeParser _extensionRange;
         private readonly ISipEndpointResolver _sipResolver;
         private readonly HashSet<string> _unknownSipEndpoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -116,8 +113,6 @@ namespace Pipeline.Components.OSVParser.Processing
             _earlyOutputCalls = new List<ProcessedCall>();
             _outputtedThreadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                         
-            // Keep legacy _config for backward compat with internal methods
-            _config = null; // Will use _settings instead
             _pipelineContext = BuildPipelineContext();
             _legMerger = new Pipeline.LegMerger(_pipelineContext);
             _transferChainResolver = new Pipeline.TransferChainResolver(_pipelineContext);
@@ -142,45 +137,6 @@ namespace Pipeline.Components.OSVParser.Processing
             }
         }
 
-        /// <summary>
-        /// Create engine with legacy config (for backward compatibility).
-        /// </summary>
-        public CdrProcessorEngine(CdrProcessorConfig config, ICacheStore cache, IProcessorLogger logger = null, IProcessingTracer tracer = null)
-        {
-            if (config == null) throw new ArgumentNullException(nameof(config));
-            if (cache == null) throw new ArgumentNullException(nameof(cache));
-            _config = config;
-            _cache = cache;
-            _logger = logger ?? new NullProcessorLogger();
-            _tracer = tracer ?? NullProcessingTracer.Instance;
-            _extensionRange = new ExtensionRangeParser(ExtensionRangeLoader.LoadRanges(config));
-            var mapper = new SipEndpointMapper();
-            if (!string.IsNullOrEmpty(config.SipEndpointsFile))
-                mapper.LoadFromFile(config.SipEndpointsFile);
-            _sipResolver = mapper;
-            _directionResolver = new DirectionResolver(_extensionRange, _sipResolver, _cache, IsInternalNumber, GetVoicemailNumber, _logger, _tracer);
-            _parser = new CdrCsvParser();
-            _candidates = new Dictionary<string, CandidateExtension>(StringComparer.OrdinalIgnoreCase);
-            _routingNumbers = new HashSet<string>(config.RoutingNumbers ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
-            _huntGroupNumbers = new HashSet<string>(config.HuntGroupNumbers ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
-            _detectedRoutingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _gidHexToThreadId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            _gidHexToFullGid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            _seenAsCallers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _seenAsCallees = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _discoveredExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _earlyOutputCalls = new List<ProcessedCall>();
-            _outputtedThreadIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        _settings = null;
-            _pendingRepo = null;
-            _pipelineContext = BuildPipelineContext();
-            _legMerger = new Pipeline.LegMerger(_pipelineContext);
-            _transferChainResolver = new Pipeline.TransferChainResolver(_pipelineContext);
-            _legSuppressor = new Pipeline.LegSuppressor(_pipelineContext);
-            _callFinalizer = new Pipeline.CallFinalizer(_pipelineContext);
-            _callAssembler = new Pipeline.CallAssembler(_pipelineContext, _legMerger, _transferChainResolver, _legSuppressor, _callFinalizer, _outputtedThreadIds, EmitCall);
-            _legBuilder = new Pipeline.LegBuilder(_pipelineContext, CalculateRingTime, GetGidHex, CheckStreamingOutput, DetectCandidateExtension);
-        }
 
         private PipelineContext BuildPipelineContext()
         {
@@ -214,19 +170,19 @@ namespace Pipeline.Components.OSVParser.Processing
                 value => _detectedVoicemailNumber = value);
         }
 
-        // Helper properties to get settings from either interface or legacy config
-        private string InputFolder => _settings?.InputFolder ?? _config?.InputFolder;
-        private string OutputFolder => _settings?.OutputFolder ?? _config?.OutputFolder;
-        private string ArchiveFolder => _settings?.ArchiveFolder ?? _config?.ArchiveFolder;
-        private string OrphanFolder => _settings?.OrphanFolder ?? _config?.OrphanFolder;
-        private string FilePattern => _settings?.FilePattern ?? _config?.FilePattern ?? "*.csv";
-        private bool WriteDecodedCdrs => _settings?.WriteDecodedCdrs ?? _config?.WriteDecodedCdrs ?? false;
+        // Helper properties to get settings from interface provider
+        private string InputFolder => _settings.InputFolder;
+        private string OutputFolder => _settings.OutputFolder;
+        private string ArchiveFolder => _settings.ArchiveFolder;
+        private string OrphanFolder => _settings.OrphanFolder;
+        private string FilePattern => _settings.FilePattern ?? "*.csv";
+        private bool WriteDecodedCdrs => _settings.WriteDecodedCdrs;
         
-        private bool DeleteInputFiles => _settings?.DeleteInputFiles ?? true;
-private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.VoicemailNumber;
-        private string DiscoveredExtensionsFile => _config?.DiscoveredExtensionsFile;
-        private bool EnableCallCompletionDetection => _config?.EnableCallCompletionDetection ?? false;
-        private int MaxCachedLegs => _config?.MaxCachedLegs ?? 0;
+        private bool DeleteInputFiles => _settings.DeleteInputFiles;
+        private string VoicemailNumber => _settings.VoicemailNumber;
+        private string DiscoveredExtensionsFile => null;
+        private bool EnableCallCompletionDetection => false;
+        private int MaxCachedLegs => 0;
 
         private static string BuildSettingsProviderSnapshot(ISettingsProvider settings)
         {
@@ -275,8 +231,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
         private string BuildEngineStateSnapshot()
         {
             return string.Format(
-                "_configNull={0}, ExtensionRangeCount={1}, SipMapperIsEmpty={2}, CandidatesCount={3}, RoutingNumbersCount={4}, HuntGroupNumbersCount={5}, DetectedRoutingNumbersCount={6}, GidHexToThreadIdCount={7}, GidHexToFullGidCount={8}, SeenAsCallersCount={9}, SeenAsCalleesCount={10}, DiscoveredExtensionsCount={11}, EarlyOutputCallsCount={12}, OutputtedThreadIdsCount={13}, LegsStreamWriterInitialized={14}, CacheCount={15}",
-                _config == null,
+                "ExtensionRangeCount={0}, SipMapperIsEmpty={1}, CandidatesCount={2}, RoutingNumbersCount={3}, HuntGroupNumbersCount={4}, DetectedRoutingNumbersCount={5}, GidHexToThreadIdCount={6}, GidHexToFullGidCount={7}, SeenAsCallersCount={8}, SeenAsCalleesCount={9}, DiscoveredExtensionsCount={10}, EarlyOutputCallsCount={11}, OutputtedThreadIdsCount={12}, LegsStreamWriterInitialized={13}, CacheCount={14}",
                 _extensionRange?.Count ?? 0,
                 _sipResolver == null || _sipResolver.IsEmpty,
                 _candidates?.Count ?? 0,
@@ -331,7 +286,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
         {
             var result = new ProcessingResult();
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var folder = folderPath ?? _config?.InputFolder ?? InputFolder;
+            var folder = folderPath ?? InputFolder;
 
             if (!Directory.Exists(folder))
             {
@@ -352,7 +307,7 @@ private string VoicemailNumber => _settings?.VoicemailNumber ?? _config?.Voicema
             // Create writer factory for decoded CDR output if enabled
             CsvOutputWriter csvOutputWriter = WriteDecodedCdrs ? new CsvOutputWriter() : null;
 
-            var outputFolder = OutputFolder ?? _config?.OutputFolder;
+            var outputFolder = OutputFolder;
             if (string.IsNullOrWhiteSpace(outputFolder))
                 throw new InvalidOperationException("OutputFolder is required for streaming legs output.");
 
