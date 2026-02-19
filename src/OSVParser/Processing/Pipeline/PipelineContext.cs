@@ -19,8 +19,6 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
         public ICacheStore Cache { get; }
 
         // Number sets
-        public HashSet<string> RoutingNumbers { get; }
-        public HashSet<string> HuntGroupNumbers { get; }
         public HashSet<string> DetectedRoutingNumbers { get; }
 
         // GID mappings
@@ -51,8 +49,6 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             ISipEndpointResolver sipResolver,
             DirectionResolver directionResolver,
             ICacheStore cache,
-            HashSet<string> routingNumbers,
-            HashSet<string> huntGroupNumbers,
             HashSet<string> detectedRoutingNumbers,
             Dictionary<string, string> gidHexToThreadId,
             Dictionary<string, string> gidHexToFullGid,
@@ -74,8 +70,6 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             SipResolver = sipResolver;
             DirectionResolver = directionResolver;
             Cache = cache;
-            RoutingNumbers = routingNumbers;
-            HuntGroupNumbers = huntGroupNumbers;
             DetectedRoutingNumbers = detectedRoutingNumbers;
             GidHexToThreadId = gidHexToThreadId;
             GidHexToFullGid = gidHexToFullGid;

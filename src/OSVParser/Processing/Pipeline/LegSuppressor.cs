@@ -24,7 +24,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
         /// </summary>
         public void SuppressCmsLegs(List<ProcessedLeg> orderedLegs)
         {
-            if (_context.RoutingNumbers.Count == 0 && _context.DetectedRoutingNumbers.Count == 0) return;
+            if (_context.DetectedRoutingNumbers.Count == 0) return;
 
             // Identify CMS-routing leg indices
             var cmsIndices = new HashSet<int>();

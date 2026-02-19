@@ -32,8 +32,6 @@ namespace Pipeline.Components.OSVParser.Processing
         private readonly ICacheStore _cache;
         private readonly CdrCsvParser _parser;
 
-        private readonly HashSet<string> _routingNumbers;
-        private readonly HashSet<string> _huntGroupNumbers;
         // Auto-detected routing numbers from HG records (pilot numbers)
         private readonly HashSet<string> _detectedRoutingNumbers;
         // Auto-detected voicemail number (from legs with CF-to-Voicemail flag)
@@ -93,8 +91,6 @@ namespace Pipeline.Components.OSVParser.Processing
             _directionResolver = new DirectionResolver(_sipResolver, _cache, IsInternalNumber, GetVoicemailNumber, _logger, _tracer);
 
             _parser = new CdrCsvParser();
-            _routingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _huntGroupNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _detectedRoutingNumbers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _gidHexToThreadId = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             _gidHexToFullGid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -133,8 +129,6 @@ namespace Pipeline.Components.OSVParser.Processing
                 _sipResolver,
                 _directionResolver,
                 _cache,
-                _routingNumbers,
-                _huntGroupNumbers,
                 _detectedRoutingNumbers,
                 _gidHexToThreadId,
                 _gidHexToFullGid,
@@ -206,10 +200,8 @@ namespace Pipeline.Components.OSVParser.Processing
         private string BuildEngineStateSnapshot()
         {
             return string.Format(
-                "SipMapperIsEmpty={0}, RoutingNumbersCount={1}, HuntGroupNumbersCount={2}, DetectedRoutingNumbersCount={3}, GidHexToThreadIdCount={4}, GidHexToFullGidCount={5}, OutputtedThreadIdsCount={6}, LegsStreamWriterInitialized={7}, CacheCount={8}",
+                "SipMapperIsEmpty={0}, DetectedRoutingNumbersCount={1}, GidHexToThreadIdCount={2}, GidHexToFullGidCount={3}, OutputtedThreadIdsCount={4}, LegsStreamWriterInitialized={5}, CacheCount={6}",
                 _sipResolver == null || _sipResolver.IsEmpty,
-                _routingNumbers?.Count ?? 0,
-                _huntGroupNumbers?.Count ?? 0,
                 _detectedRoutingNumbers?.Count ?? 0,
                 _gidHexToThreadId?.Count ?? 0,
                 _gidHexToFullGid?.Count ?? 0,
@@ -532,8 +524,7 @@ namespace Pipeline.Components.OSVParser.Processing
         private bool IsRoutingNumber(string number)
         {
             if (string.IsNullOrEmpty(number)) return false;
-            // Check both configured routing numbers and auto-detected HG pilots
-            return _routingNumbers.Contains(number) || _detectedRoutingNumbers.Contains(number);
+            return _detectedRoutingNumbers.Contains(number);
         }
 
         /// <summary>
@@ -563,8 +554,7 @@ namespace Pipeline.Components.OSVParser.Processing
         /// </summary>
         private bool IsHuntGroupNumber(string number)
         {
-            return !string.IsNullOrEmpty(number) && _huntGroupNumbers.Count > 0
-                && _huntGroupNumbers.Contains(number);
+            return false; // No configured HG numbers; HG detection is via CDR HG fields
         }
 
         /// <summary>
