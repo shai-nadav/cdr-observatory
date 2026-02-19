@@ -141,7 +141,7 @@ namespace Pipeline.Components.OSVParser.Processing
                 IsSipPstn,
                 IsSipKnown,
                 NormalizeEndpoint,
-                IsInternalDestForEmptyRanges,
+                IsInternalDestination,
                 () => _detectedVoicemailNumber,
                 value => _detectedVoicemailNumber = value);
         }
@@ -508,7 +508,7 @@ namespace Pipeline.Components.OSVParser.Processing
         /// True when the number is a configured routing-only extension (CMS, pilot, etc.).
         /// </summary>
         
-        private bool IsInternalDestForEmptyRanges(ProcessedLeg leg)
+        private bool IsInternalDestination(ProcessedLeg leg)
         {
             if (leg == null) return false;
             // Prefer SIP endpoints when available

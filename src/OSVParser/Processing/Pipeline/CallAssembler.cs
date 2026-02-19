@@ -281,7 +281,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
 
                     var anyInternalDest = orderedLegs.Any(l =>
                         (true
-                            ? _context.IsInternalDestForEmptyRanges(l)
+                            ? _context.IsInternalDestination(l)
                             : (_context.IsInternalNumber(l.DestinationExt) || _context.IsInternalNumber(l.CalledExtension))));
                     if (anyPstnToPstn || !anyInternalDest)
                     {

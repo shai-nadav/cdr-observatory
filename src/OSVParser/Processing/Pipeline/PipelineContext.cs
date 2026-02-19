@@ -37,7 +37,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
         public Func<string, bool> IsSipPstn { get; }
         public Func<string, bool> IsSipKnown { get; }
         public Func<string, string> NormalizeEndpoint { get; }
-        public Func<ProcessedLeg, bool> IsInternalDestForEmptyRanges { get; }
+        public Func<ProcessedLeg, bool> IsInternalDestination { get; }
 
         // Mutable voicemail number (detected at runtime)
         public Func<string> GetDetectedVoicemailNumber { get; }
@@ -82,7 +82,7 @@ namespace Pipeline.Components.OSVParser.Processing.Pipeline
             IsSipPstn = isSipPstn;
             IsSipKnown = isSipKnown;
             NormalizeEndpoint = normalizeEndpoint;
-            IsInternalDestForEmptyRanges = isInternalDestForEmptyRanges;
+            IsInternalDestination = isInternalDestForEmptyRanges;
             GetDetectedVoicemailNumber = getDetectedVoicemailNumber;
             SetDetectedVoicemailNumber = setDetectedVoicemailNumber;
         }
