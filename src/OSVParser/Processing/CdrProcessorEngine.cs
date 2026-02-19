@@ -161,7 +161,6 @@ namespace Pipeline.Components.OSVParser.Processing
         private bool WriteDecodedCdrs => _settings.WriteDecodedCdrs;
         
         private bool DeleteInputFiles => _settings.DeleteInputFiles;
-        private string VoicemailNumber => null;
         private int MaxCachedLegs => 0;
 
         private static string BuildSettingsProviderSnapshot(ISettingsProvider settings)
@@ -463,22 +462,15 @@ namespace Pipeline.Components.OSVParser.Processing
             if ((leg.PerCallFeatureExt & 64) != 0)
                 return true;
             
-            // Check configured voicemail number first
-            if (!string.IsNullOrEmpty(VoicemailNumber) && leg.CalledParty == VoicemailNumber)
-                return true;
-            
-            // Fallback: check auto-detected voicemail number
             return !string.IsNullOrEmpty(_detectedVoicemailNumber) && leg.CalledParty == _detectedVoicemailNumber;
         }
 
         /// <summary>
-        /// Get the effective voicemail number (configured or auto-detected).
+        /// Get the auto-detected voicemail number.
         /// </summary>
         private string GetVoicemailNumber()
         {
-            return !string.IsNullOrEmpty(VoicemailNumber)
-                ? VoicemailNumber
-                : _detectedVoicemailNumber;
+            return _detectedVoicemailNumber;
         }
 
         private string NormalizeEndpoint(string endpoint)
